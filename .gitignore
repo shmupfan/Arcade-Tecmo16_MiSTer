@@ -1,0 +1,5 @@
+roms/
+sim/build/
+sim/mame/out/
+*.rbf
+__pycache__/
