@@ -11,7 +11,7 @@ ROOT=$(cd "$HERE/../.." && pwd)
 MAME=${MAME:-mame}
 SET=$1; shift
 SCRIPT=$1; shift
-RT="$HERE/out/runtime/$SET"
+RT="$HERE/out/runtime/${RT_TAG:-$SET}"
 # snapshot paths in the Lua scripts are resolved against the snapshot dir, so
 # hand the scripts an absolute DUMP_DIR
 if [ -n "$DUMP_DIR" ]; then mkdir -p "$DUMP_DIR"; DUMP_DIR=$(cd "$DUMP_DIR" && pwd); export DUMP_DIR; fi

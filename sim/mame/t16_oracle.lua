@@ -12,6 +12,12 @@
 --   NO_SNAP      1 = skip snap.png
 --   HEAVY_LOG    1 = log every palette/sprite/tile RAM write row by row
 --                (default: per-frame per-class summaries only)
+--   VISLOG       1 = write vislog.csv: every tile RAM, palette, scroll and
+--                flip write made during the visible scan (lines 16-239) of
+--                a frame in DUMP_FRAMES, with the word's value before the
+--                write (M1 mid-scan replay, sim/m1/midscan.py)
+--   NO_DUMP      1 = do not write frame dumps (use with VISLOG to log a
+--                capture that already has its dumps)
 --   INPUTS       "frame:PORT:Field name:value;..." input events
 --   FIELDS       "PORT:Field name:value;..." DIP user values at start
 --
@@ -63,6 +69,8 @@ local total = tonumber(os.getenv("TOTAL") or "0")
 if total == 0 then total = maxdump end
 if total == 0 then total = 600 end
 local heavy = os.getenv("HEAVY_LOG") == "1"
+local vislog_on = os.getenv("VISLOG") == "1"
+local no_dump = os.getenv("NO_DUMP") == "1"
 
 local MACHINE = {
   fstarfrc = "base", fstarfrcj = "base", fstarfrcja = "base", fstarfrcw = "base",
@@ -152,6 +160,25 @@ local function heavyw(class, addr, data, mask)
   end
 end
 
+-- VISLOG: one row per write in the visible scan of a dumped frame.
+-- old = the 16-bit word (RAM) or register value before the write; for
+-- scroll_char_y also whether it had ever been written (spec 7: the -16
+-- text offset applies from the first write on).
+local vlog = nil
+if vislog_on then
+  vlog = assert(io.open(outdir .. "/vislog.csv", "w"))
+  vlog:write("scan_frame,line,hpos,class,addr,data,mask,old,old_written\n")
+end
+local function visw(class, addr, data, mask, oldfn)
+  if not vlog then return end
+  local line, hpos, scan = beam()
+  if not (is_visible(line) and dump_frames[scan]) then return end
+  local old, ow = oldfn()
+  vlog:write(string.format("%d,%d,%d,%s,%06x,%x,%x,%x,%d\n",
+    scan, line, hpos, class, addr, data, mask or 0xffff, old, ow or 0))
+end
+local function ram_old(addr) return function() return main:read_u16(addr & 0xfffffe), 0 end end
+
 _G._t16_taps = {}
 local function tap(lo, hi, name, fn)
   local h = main:install_write_tap(lo, hi, name, function(offset, data, mask)
@@ -172,10 +199,28 @@ local REG = {
   [0x16000c] = "fg_scroll_x", [0x160012] = "fg_scroll_y",
   [0x160018] = "bg_scroll_x", [0x16001e] = "bg_scroll_y",
 }
+local VREG_ITEM = {
+  [0x160000] = function() return it_ccx:read(0) end,
+  [0x160006] = function() return it_ccy:read(0) end,
+  [0x16000c] = function() return it_scx:read(0) end,
+  [0x160012] = function() return it_scy:read(0) end,
+  [0x160018] = function() return it_scx:read(1) end,
+  [0x16001e] = function() return it_scy:read(1) end,
+}
 tap(0x160000, 0x16001f, "vreg", function(o, d, mk)
-  logw(REG[o & 0xfffffe] or string.format("vreg_%06x", o), o, d, mk)
+  local name = REG[o & 0xfffffe] or string.format("vreg_%06x", o)
+  local itf = VREG_ITEM[o & 0xfffffe]
+  if itf then
+    visw(name, o, d, mk, function()
+      return itf() & 0xffff, ((hits["scroll_char_y"] or 0) > 0) and 1 or 0
+    end)
+  end
+  logw(name, o, d, mk)
 end)
-tap(0x150000, 0x150001, "flip", function(o, d, mk) logw("flip", o, d, mk) end)
+tap(0x150000, 0x150001, "flip", function(o, d, mk)
+  visw("flip", o, d, mk, function() return it_flipx:read(0), 0 end)
+  logw("flip", o, d, mk)
+end)
 tap(0x150010, 0x150011, "soundlatch", function(o, d, mk) logw("soundlatch", o, d, mk) end)
 tap(0x150020, 0x150021, "irq_150021", function(o, d, mk) logw("irq_150021", o, d, mk) end)
 tap(0x150030, 0x150031, "irq_150031", function(o, d, mk) logw("irq_150031", o, d, mk) end)
@@ -187,23 +232,24 @@ rtap(0x160000, 0x16001f, "vreg_read")
 -- tecmo16.cpp:688)
 local pal_written = {}
 tap(0x140000, 0x141fff, "pal", function(o, d, mk)
+  visw("pal", o, d, mk, ram_old(o))
   pal_written[(o - 0x140000) >> 1] = true
   heavyw("pal", o, d, mk)
 end)
 tap(0x130000, 0x130fff, "spr", function(o, d, mk) heavyw("spr", o, d, mk) end)
-tap(0x110000, 0x110fff, "charram", function(o, d, mk) heavyw("charram", o, d, mk) end)
+tap(0x110000, 0x110fff, "charram", function(o, d, mk) visw("charram", o, d, mk, ram_old(o)); heavyw("charram", o, d, mk) end)
 if machine_name == "base" then
   -- fstarfrc_map (tecmo16.cpp:395-405)
-  tap(0x120000, 0x1207ff, "fgvram", function(o, d, mk) heavyw("fgvram", o, d, mk) end)
-  tap(0x120800, 0x120fff, "fgcram", function(o, d, mk) heavyw("fgcram", o, d, mk) end)
-  tap(0x121000, 0x1217ff, "bgvram", function(o, d, mk) heavyw("bgvram", o, d, mk) end)
-  tap(0x121800, 0x121fff, "bgcram", function(o, d, mk) heavyw("bgcram", o, d, mk) end)
+  tap(0x120000, 0x1207ff, "fgvram", function(o, d, mk) visw("fgvram", o, d, mk, ram_old(o)); heavyw("fgvram", o, d, mk) end)
+  tap(0x120800, 0x120fff, "fgcram", function(o, d, mk) visw("fgcram", o, d, mk, ram_old(o)); heavyw("fgcram", o, d, mk) end)
+  tap(0x121000, 0x1217ff, "bgvram", function(o, d, mk) visw("bgvram", o, d, mk, ram_old(o)); heavyw("bgvram", o, d, mk) end)
+  tap(0x121800, 0x121fff, "bgcram", function(o, d, mk) visw("bgcram", o, d, mk, ram_old(o)); heavyw("bgcram", o, d, mk) end)
 else
   -- ginkun_map (tecmo16.cpp:407-417)
-  tap(0x120000, 0x120fff, "fgvram", function(o, d, mk) heavyw("fgvram", o, d, mk) end)
-  tap(0x121000, 0x121fff, "fgcram", function(o, d, mk) heavyw("fgcram", o, d, mk) end)
-  tap(0x122000, 0x122fff, "bgvram", function(o, d, mk) heavyw("bgvram", o, d, mk) end)
-  tap(0x123000, 0x123fff, "bgcram", function(o, d, mk) heavyw("bgcram", o, d, mk) end)
+  tap(0x120000, 0x120fff, "fgvram", function(o, d, mk) visw("fgvram", o, d, mk, ram_old(o)); heavyw("fgvram", o, d, mk) end)
+  tap(0x121000, 0x121fff, "fgcram", function(o, d, mk) visw("fgcram", o, d, mk, ram_old(o)); heavyw("fgcram", o, d, mk) end)
+  tap(0x122000, 0x122fff, "bgvram", function(o, d, mk) visw("bgvram", o, d, mk, ram_old(o)); heavyw("bgvram", o, d, mk) end)
+  tap(0x123000, 0x123fff, "bgcram", function(o, d, mk) visw("bgcram", o, d, mk, ram_old(o)); heavyw("bgcram", o, d, mk) end)
   tap(0x124000, 0x124fff, "extra124", function(o, d, mk) heavyw("extra124", o, d, mk) end)
 end
 
@@ -348,7 +394,7 @@ _G._t16_frame = emu.add_machine_frame_notifier(function()
     wfile(pending_pixels .. "/palette_next.bin", share_bytes(":palette"))
     pending_pixels = nil
   end
-  if dump_frames[frame] then dump_frame(frame, cur) end
+  if dump_frames[frame] and not no_dump then dump_frame(frame, cur) end
   prev_sprbuf = cur
   local ev = events[frame]
   if ev then
@@ -359,6 +405,7 @@ _G._t16_frame = emu.add_machine_frame_notifier(function()
   end
   if frame > total then
     wlog:close(); sumlog:close(); ftrace:close(); ilog:close()
+    if vlog then vlog:close() end
     local s = assert(io.open(outdir .. "/summary.txt", "w"))
     s:write(string.format("set %s machine %s frames %d\n", setname, machine_name, frame))
     s:write(vpos_check .. "\n")

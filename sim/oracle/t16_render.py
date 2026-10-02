@@ -172,9 +172,13 @@ def draw_sprites(setname, spram, sizey_shift, flip):
     return bm, used
 
 
-def mix(bg, fg, tx, sp, pal):
+def mix(bg, fg, tx, sp, pal, rand_fallback=False):
     """tecmo_mix_device::mix_bitmaps (tecmo_mix.cpp:70-323). Returns
-    (rgb (H, W, 3), rand mask of pixels where MAME writes machine().rand())."""
+    (rgb (H, W, 3), rand mask of pixels where MAME writes machine().rand()).
+
+    rand_fallback=True: the four rand() branches take the branch below them
+    instead, which is what the RTL does (research item R6, m1_findings);
+    the mask still marks those pixels."""
     sprpri = (sp >> SPRPRI_SHIFT) & 3
     sprbln = (sp >> SPRBLN_SHIFT) & 1
     sprcol = (sp >> SPRCOL_SHIFT) & 15
@@ -211,7 +215,8 @@ def mix(bg, fg, tx, sp, pal):
         nonlocal done
         c = cond & ~done
         rnd[c] = True
-        done |= c
+        if not rand_fallback:
+            done |= c
 
     bgpen_blend = np.full(bg.shape, BGPEN_BLEND, dtype=np.int64)
     p_behind = spr_on & (sprpri == (0 ^ REVSPRITETILE))
@@ -300,12 +305,12 @@ def layers(frame_dir, regions_set=None, sprites="prev"):
     return st, bg, fg, tx, sp, used
 
 
-def render(frame_dir, regions_set=None, sprites="prev"):
+def render(frame_dir, regions_set=None, sprites="prev", rand_fallback=False):
     """Return (rgb (224, 256, 3), rand mask (224, 256), stats)."""
     d = Path(frame_dir)
     st, bg, fg, tx, sp, used = layers(frame_dir, regions_set, sprites)
     pal = palette_rgb((d / "palette.bin").read_bytes())
-    rgb, rnd = mix(bg, fg, tx, sp, pal)
+    rgb, rnd = mix(bg, fg, tx, sp, pal, rand_fallback)
     return rgb[VIS_Y0:VIS_Y1], rnd[VIS_Y0:VIS_Y1], {"sprites_enabled": used}
 
 

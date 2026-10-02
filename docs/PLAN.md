@@ -32,7 +32,7 @@ difference is logged.
 | fx68k (68000, cycle-exact) | `../dooyong-mister/rtl/vendor/fx68k` (from Hyper Duel), with PROVENANCE.md | copy with provenance, no edits |
 | T80 (Z80) | `../dooyong-mister/rtl/vendor/t80` (jtcores 0b197ca), with PROVENANCE.md | includes the IX/IY power-on patch |
 | jt51, jt6295 | `../dooyong-mister/rtl/vendor/` (SOUND_PROVENANCE.md) | the sound board is the same Z80 + YM2151 + M6295 shape as Dooyong's Flying Tiger: start from `dy_snd.sv` |
-| Sprite engine and blender reference | jotego `jtcores/cores/gaiden/hdl` (`jtgaiden_obj.v`, `jtgaiden_objscan.v`, `jtgaiden_blender.v`, `jtgaiden_colmix.v`, `jtgaiden_priority.v`), GPL-3.0-or-later, jtcores 881576a (2026-08-25) | same Tecmo sprite chip and mixer family as MAME's gaiden.cpp; `jtgaiden_blender.v` is the saturating 4-bit add that equals MAME's `sum_colors` after 4-to-8-bit expansion. jtframe-dependent: port or use as a reference, decided in M1 |
+| Sprite engine and blender reference | jotego `jtcores/cores/gaiden/hdl` (`jtgaiden_obj.v`, `jtgaiden_objscan.v`, `jtgaiden_blender.v`, `jtgaiden_colmix.v`, `jtgaiden_priority.v`), GPL-3.0-or-later, examined at jtcores b672aca (2026-10-02) | **M1 decision: reference only, not vendored** (m1_findings 3): it needs jtframe's object drawer, delay lines and raster conventions, its priority table differs from MAME's tecmo16 mixer in one branch, and our renderer is checked against MAME directly. Its resolution of MAME's four `rand()` branches is the one the core uses (R6) |
 | SDRAM controller, MiSTer shell, ioctl download | `../dooyong-mister/rtl/dy_sdram.sv`, `Arcade-Dooyong.sv`, `dy_board.sv` | rename, re-parameterise the SDRAM layout (4.3) |
 | MRA generator, deploy script | `../dooyong-mister/tools/make_mra.py`, `deploy_mister.sh` | |
 | Oracle, renderer, comparison | ported in M0 (`sim/mame/t16_oracle.lua`, `sim/oracle/t16_render.py`, `compare_frames.py`) | |
@@ -51,47 +51,45 @@ system glue (memory map, IRQ5, sound latch, inputs).
 
 ## 4. Architecture
 
-### 4.1 Video
+### 4.1 Video (built in M1, `rtl/t16_video.sv`, details m1_findings)
 
-Line renderer (as Dooyong and 1945k III): per line, fetch the three
-tilemaps into line buffers, walk the 256-entry sprite list and draw the
-hits into a sprite line buffer (value = colour/priority/blend bits + pen,
-spec 8), then mix per pixel (spec 9).
+Line renderer (as Dooyong and 1945k III): during line L-1 one pass fetches
+the three tilemaps (17 + 17 + 33 tiles) and walks the 256-entry sprite list,
+writing four double line buffers (bg, fg, text, sprites); scan-out mixes
+them per pixel (spec 9) with one or two palette reads.
 
-Sprite load per line, worst case in all M0 captures: 24 sprites and 146
-8-pixel columns on one line (Final Star Force World attract); Riot with
-flip screen showed 128 sprites crossing one line, all 8x8. At an assumed
-96 MHz system clock and MAME's 256-line frame, one line is 6,338 clocks
-(6,144 for the 6 MHz / 384-clock guess in spec 4): enough for a list walk
-and 146 column fetches of 32 bits from SDRAM.
+- **Two-frame sprite lag** (spec 8): `t16_snapram` MODE 2. At vblank start
+  S2 <= S and S <= live sprite RAM; the renderer reads S2. The copy is
+  copy-before-write, so it equals MAME's instantaneous copy even when Riot
+  and Ginkun write sprite RAM in the first microseconds of vblank
+  (m1_findings 4).
+- **Tile RAM, palette, scroll and flip: read LIVE** (decision below). The
+  `LATCH` parameter switches to a snapshot of all of them taken at the
+  start of line `LATCH_LINE` (14), built and verified in M1 as well.
 
-Two parity points the RTL must reproduce:
+### 4.1.1 Decision: live reads (Lee, 2026-10-02)
 
-- **Two-frame sprite lag** (spec 8): at vblank start, render from the
-  buffer, then copy live sprite RAM into the buffer. In RTL: the line
-  renderer for frame N reads a buffer B1 holding the live RAM of vblank
-  N-2; at vblank start copy B0 -> B1 and live -> B0 (two 4 KB buffers, or
-  one buffer plus drawing frame N's list into a framebuffer, which is what
-  jtgaiden's `frmbuf_en` option does).
-- **Frame-latched tile RAM and palette** (spec 10.1): MAME renders the whole
-  frame from the state at vblank start. Games write tile RAM during the
-  visible scan: Final Star Force changes text RAM values mid-scan in 362 of
-  501 frames (lines 16-63), bg RAM in 7 of 501; Riot and Ginkun bg/fg/text
-  RAM in a few frames per 500 (m0_findings 5). A renderer reading live RAM
-  would differ from MAME in those frames. For parity the RTL keeps a copy
-  of tile RAM, palette and scroll latched at vblank start (about 20 KB
-  for Riot/Ginkun tile RAM + 8 KB palette). Whether the PCB reads live is
-  R1; the M1 decision is MAME parity by default, as in Dooyong (R12) and
-  1945k III (R3).
+The core reads tile RAM, scroll and palette live while the frame is drawn
+(`LATCH = 0`, the default). This is the most plausible PCB behaviour for a
+line-based video chip, unconfirmed: **R1 stays open until frame-by-frame
+PCB footage of a mid-frame text-layer write** (Final Star Force changes its
+text layer during the scan in most busy frames, m0_findings 5). MAME draws
+each frame once at vblank start, so it shows such a write on every line of
+the frame; the core shows the old contents above the write and the new
+below. Every captured frame where the two differ is classified in
+m1_findings 5; the core is believed to be the accurate side for those
+frames. Neither a live renderer nor a latch reproduces MAME on those frames;
+only a renderer one frame behind the CPU would, at the cost of a frame of
+display lag on every frame, which no evidence supports.
 
-### 4.2 Clocks (proposal)
+### 4.2 Clocks (M1)
 
-96 MHz system clock; 68000 enable at 12 MHz (/8); Z80 and YM2151 at 4 MHz
-(/24); OKI at 1 MHz from an 8 MHz enable (/12 then /8, or a direct /96
-enable to the jt6295 cen); pixel enable 6 MHz (/16) if the PCB timing
-guess (spec 4) is adopted, else MAME's 59.17 Hz / 256-line raster
-(15.15 kHz line, 6,338 clocks per line), which needs a fractional enable.
-Choice made in M1 with R3.
+96 MHz system clock. Video: 6 MHz pixel enable (96 / 16), 384 clocks a line
+(6,144 system clocks), V_TOTAL = 264 lines: MAME's TODO guess for the real
+board (t16:20), 59.19 Hz, against MAME's own 59.17 Hz / 256 lines (R3). The
+visible window is MAME's (256 x 224, lines 16-239, vblank from line 240);
+sync positions are not in the driver (R3). Planned for M2: 68000 enable
+12 MHz (/8), Z80 and YM2151 4 MHz (/24), OKI 1 MHz.
 
 ### 4.3 SDRAM layout (fixed in tools/build_regions.py)
 
@@ -108,12 +106,14 @@ Choice made in M1 with R3.
 audiocpu, fgtiles and oki are small enough for M10K if SDRAM ports run
 short (decided in M4).
 
-### 4.4 On-chip RAM (estimate)
+### 4.4 On-chip RAM (estimate, M1; Quartus figures come in M4)
 
-Main RAM 16 KB, Final Star Force work RAM 24 KB (0x122000-0x127fff), Riot
-extra 4 KB, palette 8 KB, sprite RAM 4 KB + two 4 KB buffers, tile RAM up
-to 20 KB plus a 20 KB latched copy, Z80 RAM 3 KB, line buffers: about
-110 KB, roughly 90 M10K of 553.
+Video, LIVE build: palette 4,096 x 16 (7 M10K), five 2,048-word tile RAMs
+(20), sprite list live + two buffers + marks (14), four 512 x 16 line
+buffers (4): about 45 M10K. The LATCH build adds a shadow and a mark RAM
+per tile RAM and the palette: about 41 more. System (M2): main RAM 16 KB,
+Final Star Force work RAM 24 KB, Riot extra 4 KB, Z80 RAM 3 KB: about 40
+M10K. Total about 85 (LIVE) of 553.
 
 ## 5. Milestones
 
@@ -125,15 +125,16 @@ renderer pixel-exact against MAME on every captured frame (attract of all
 three parents with dense windows, real gameplay for fstarfrc and riot,
 flip screen for all three, 300 frames of each clone).
 
-### M1. Video RTL parity
+### M1. Video RTL parity (DONE, see m1_findings.md)
 
 Verilator frame replay of every M0 capture through the video RTL, fed the
 dumped tile RAM, sprite buffer, scroll, flip and palette; RTL vs MAME
 pixel-exact. Synthetic scenes vs t16_render.py: every sprite size and flip
 combination, x/y wrap, all priority and blend branches (including the four
-`rand()` branches, which the RTL must render deterministically and log),
-tile codes at region ends, both tilemap widths, flip screen. Decide the
-jtgaiden reuse and the latching structure (4.1). Gate: 100% of frames.
+`rand()` branches, rendered deterministically), tile codes at region ends,
+both tilemap widths, flip screen. Mid-scan replay of every captured frame
+with visible-scan writes, each difference from MAME classified. jtgaiden
+reuse and the latching structure decided (4.1).
 
 ### M2. Full-system boot in Verilator
 
@@ -166,20 +167,23 @@ the shmupfan Distribution database.
 
 | # | Question | Source |
 |---|---|---|
-| R1 | Does the board read tile RAM and palette live during the scan (games write them mid-frame), or latch them per frame as MAME's single render implies? | spec 10.1, m0_findings 5 |
+| R1 | Does the board read tile RAM and palette live during the scan (games write them mid-frame), or latch them per frame as MAME's single render implies? The core reads them live (4.1.1); open until frame-by-frame PCB footage of a mid-frame text-layer write | spec 10.1, m0_findings 5, m1_findings 5 |
 | R2 | Sprite lag on the PCB: two frames as MAME's vblank copy gives, or a sprite framebuffer (jtgaiden models one)? | spec 8, t16:335-340 |
 | R3 | Real raster: MAME guesses 6 MHz, 384 x 264 (59.19 Hz, close to MAME's 59.17); vblank and IRQ5 hold length, which sets how many IRQ5s Final Star Force takes | spec 4, t16:17-20 |
 | R4 | What 0x150021 and 0x150031 do (IRQ clear, ack, DMA trigger?) | t16:348-366 |
 | R5 | What the TECMO-5 "MCU?" does, and whether anything reads it | t16:903 |
-| R6 | Mixer behaviour in the branches MAME fills with random colours or marks as guesses; Riot exercises blending heavily | spec 9, mix:120-261 |
+| R6 | Mixer behaviour in the branches MAME fills with random colours or marks as guesses; Riot exercises blending heavily. The core takes the branch below each `rand()` (jtgaiden's choice); no captured frame hits one | spec 9, mix:120-261, m1_findings 7 |
 | R7 | Value read at 0x160000 (Final Star Force reads it at scene changes) | t16:384 |
 | R8 | How the hardware selects the 32- or 64-column tilemap | t16:373-374 |
+| R9 | Meaning of the ten video registers MAME ignores (0x160002-0x16001c, written at boot; values include 0x010, 0x0ef, 0x0df = lines 16, 239, 223): raster, window or sync settings? | m0_findings 3 |
+| R10 | Sprites (8-pixel cells) the PCB can draw on one line: MAME has no limit; the core's line pass takes 664 cells with the pessimistic ROM model, the games use at most 146 | m1_findings 6 |
 
 ## 7. Risks
 
 - Blending branches MAME marks as guesses (R6) only show on Riot; the
   core follows MAME until PCB video says otherwise.
-- The latched-copy RAM cost (4.1) is small; if R1 shows live reads, the
-  copy is dropped and the oracle comparison becomes per-line.
+- R1: the default build reads live (4.1.1). If PCB footage shows a per-frame
+  latch, `LATCH = 1` is built and verified already (the latch line may need
+  moving to what the footage shows).
 - Compile PC instability (memory note `compile_pc_instability.md`): use
   the E-core-only build task; treat a crashed fit as untrusted.
