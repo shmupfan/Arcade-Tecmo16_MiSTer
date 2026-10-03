@@ -194,7 +194,7 @@ R12 stays open but cannot affect these games.
 | File | Content |
 |---|---|
 | `rtl/t16_snd.sv` | YM2151 writes held until jt51's `cen_p1` (section 2); `verilator public_flat_rd` comments for the harness |
-| `rtl/vendor/jt6295/hdl/jt6295_serial.v` | busy flags at `cen4` (section 4) |
+| `rtl/vendor/jt6295/hdl/jt6295_serial.v` | busy flags at `cen4` (section 4); consolidated with the 1945k III patches 1 and 2 (section 10) |
 | `sim/m2/tb_sys.cpp` | `+snd` sound event log, `+wav` stereo mix at 48 kHz, `+wavsep` YM2151 and M6295 before the mix, `+ztrace` sound CPU fetches, `+okitrace` M6295 channel state |
 | `sim/mame/t16_oracle.lua` | `SNDLOG=1` sound event log with MAME's emulated time (latch writes, YM/M6295 writes and reads, IRQ/NMI entries at opcode fetch), `SNDTRACE=F0:F1:file` debugger trace of the sound CPU |
 | `sim/m3.mk` | `m3-oracle`, `m3-boot`, `m3-compare`, `m3` |
@@ -214,13 +214,11 @@ the 68000, so M2's gate results stand.
    (hold the write until `cen_p1`) is likely to remove most of Dooyong's
    R13 stream divergences. Needs a Dooyong M3 rerun and a new build; not
    done here.
-2. **jt6295 busy patch in the other cores.** Dooyong and Hyper Duel carry
-   the unpatched jt6295 (section 4). A game that stops a channel and
-   restarts it inside the same slot would lose the restart there. Worth
-   checking their M6295 command streams for stop-then-start pairs.
-3. **jt6295 stop byte.** The 1945k III core patched jt6295 to play the stop
-   byte's last nibble (its R7). This core does not carry that patch; its
-   effect here would be one sample (132 us) more per phrase.
+2. **jt6295 busy patch in the other cores.** Resolved 2026-10-03: Lee
+   approved porting the jt6295 fixes to Dooyong and Hyper Duel (separate
+   work in those repos).
+3. **jt6295 stop byte.** Resolved 2026-10-03: this core now carries the
+   consolidated jt6295 with the 1945k III core's patches (section 10).
 
 ## 9. Research items added
 
@@ -228,3 +226,40 @@ the 68000, so M2's gate results stand.
 |---|---|---|
 | R14 | How long the M6295 takes to report a channel idle after a stop command (jt6295: up to one channel slot; MAME: at once) | logic-analyser capture of the status after a stop on a real MSM6295 |
 | R15 | The YM2151 timer phase against the CPUs after reset (jt51 steps timers per sample cycle, as Nuked-OPM; MAME counts from the write) | a PCB recording of a timing-sensitive sound sequence, or a capture of the YM2151 IRQ line against the sound CPU's reset |
+
+## 10. Consolidated jt6295: patches 1 and 2 added (2026-10-03)
+
+The jt6295 copy in this core and in the 1945k III core is now one file with
+three patches (rtl/vendor/jt6295/PROVENANCE.md, identical in both repos):
+1 inclusive stop byte (1945k III R7: MAME plays 2 x (stop - start + 1)
+samples), 2 a start to a channel that is still playing is ignored (MAME
+okim6295.cpp L281-284), 3 this core's busy-at-cen4 fix (section 4). They
+touch different terms of jt6295_serial.v and do not interact.
+
+Re-run of the five M3 runs on the consolidated file, against the section 1
+gate runs (patch 3 only) and MAME:
+
+| Run | Frames | Sound events (latch, YM2151, M6295, reads, IRQ/NMI) | Sound RAM vs MAME | Level below 3.5 kHz vs MAME |
+|---|---|---|---|---|
+| fs_attract | 3,601 | byte-identical to the gate run | as the gate run (4 transient dumps, 0 persistent) | -0.02 dB (gate -0.00), envelope correlation 0.999 (gate 0.998) |
+| fs_play | 3,601 | byte-identical | as the gate run (7 transient, 0 persistent) | -0.02 dB (gate -0.02) |
+| riot_attract | 3,601 | byte-identical | 0 outside the stack | +0.22 dB; audio byte-identical to the gate run |
+| ginkun_attract | to frame 3295 (of 3,601; stopped to free the Mac) | byte-identical to that frame | not compared (partial) | -0.01 dB over the first 21 s (gate -0.01) |
+| riot_play | not re-run | | | Riot's attract run shows no change at all |
+
+Every write, read result and interrupt is identical, so patches 1 and 2
+change no program flow here. Only Final Star Force's M6295 output changes:
+in 34 (attract) and 19 (play) 200 ms windows the two builds differ by more
+than -20 dB relative; in those windows the consolidated build is closer to
+MAME's level in 9 and never further (largest: fs_play at 39.2 s, +1.01 dB
+against MAME before, +0.22 dB after). The size of the differences (up to
+6,297 of 32,767) points to patch 2: Final Star Force re-sends a start to a
+playing channel at times, and upstream jt6295 restarted the phrase.
+Believed accurate: the consolidated build (closer to MAME, and the same
+reasons as 1945k III's patch 2).
+
+Build with the consolidated file and M3's t16_snd fix (4e7693f): compile 3
+of this core, C:\t16_build, 2026-10-03 14:23, every clock non-negative
+(core 96 MHz setup +0.640 ns, hold +0.244 ns; HDMI +0.349 ns), 33% ALMs,
+42% RAM blocks; `builds/20261003_1425_Arcade-Tecmo16.rbf`, md5
+952f754fc89fef91cde1fbeb176ffc84. Not yet on hardware.

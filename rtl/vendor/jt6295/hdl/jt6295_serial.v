@@ -75,13 +75,12 @@ always @(posedge clk, posedge rst ) begin
     if( rst ) begin
         busy <= 4'd0;
     end else begin
-        // Tecmo 16 core patch (rtl/vendor/jt6295/PROVENANCE.md): the busy
-        // flags follow the channel state committed to the CSR shift register
-        // at cen4. Upstream updates them on every clock of the channel's
-        // slot, so a pending stop reads as idle before it is committed, and
-        // a start command's first byte (which clears the pending stop in
-        // jt6295_ctrl) arriving in the same slot cancels the stop: the old
-        // phrase plays on and the new start is ignored as busy.
+        // Patch 3 (PROVENANCE.md, from the Tecmo 16 core): the busy flags
+        // follow the channel state committed to the CSR shift register at
+        // cen4. Upstream updates them on every clock of the channel's slot,
+        // so a pending stop reads as idle before it is committed, and a
+        // start command's first byte (which clears the pending stop in
+        // jt6295_ctrl) arriving in the same slot cancels the stop.
         if( cen4 ) case( ch )
             4'b0001: busy[0] <= busy_in;
             4'b0010: busy[1] <= busy_in;
@@ -111,19 +110,24 @@ always @(posedge clk, posedge rst ) begin
 end
 
 assign zero     = ch[0];
-assign update   = up_start | up_stop;
+// Patch 2 (PROVENANCE.md): a start for a channel that is still playing
+// is ignored (as MAME and as jt6295's README describe). MAME
+// okim6295.cpp L281-284. The start request is still acknowledged so the control
+// block clears it.
+wire   start_ok = up_start & ~busy_out;
+assign update   = start_ok | up_stop;
 assign cont     = busy_out & ~over;
 assign cnt_next = cont      ? cnt+19'd1 : cnt;
-assign stop_in  = up_start  ? stop_addr : stop_out;
-assign cnt_in   = up_start  ? {start_addr, 1'b0} : cnt_next;
-assign att_in   = up_start  ? att : att_out;
-assign busy_in  = update    ? (up_start & ~up_stop) : cont;
+assign stop_in  = start_ok  ? stop_addr : stop_out;
+assign cnt_in   = start_ok  ? {start_addr, 1'b0} : cnt_next;
+assign att_in   = start_ok  ? att : att_out;
+assign busy_in  = update    ? (start_ok & ~up_stop) : cont;
 
 wire [CSRW-1:0] csr_in, csr_out;
 assign csr_in = { stop_in, cnt_in, att_in, busy_in };
 assign {stop_out, cnt, att_out, busy_out } = csr_out;
 assign rom_addr = cnt[18:1];
-assign over     = rom_addr >= stop_out;
+assign over     = cnt >= {stop_out, 1'b1}; // Patch 1: stop byte inclusive (PROVENANCE.md)
 
 jt6295_sh_rst #(.WIDTH(CSRW), .STAGES(4) ) u_cnt(
     .rst    ( rst       ),

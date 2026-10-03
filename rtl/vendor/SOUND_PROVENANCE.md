@@ -40,6 +40,9 @@ Simulation only (Verilator comments, no effect on synthesis):
 - `jt6295/hdl/jt6295.v`: `verilator public_flat_rd` on `att` and
   `pipe_att` (M3 trace `+okitrace`).
 
-The Dooyong and Hyper Duel cores carry the unpatched file; whether they
-need the patch depends on whether their sound programs restart a channel
-in the slot after a stop (open question for Lee, m3_findings 8).
+2026-10-03: superseded by one consolidated jt6295 patch set shared with the
+1945k III core (patches 1, 2 and 3: inclusive stop byte, start to a busy
+channel ignored, busy follows the committed state). The jt6295 directory is
+identical in both cores; see `jt6295/PROVENANCE.md` for every patch and its
+evidence. Re-verification of this core with patches 1 and 2 added:
+docs/m3_findings.md section 9.
