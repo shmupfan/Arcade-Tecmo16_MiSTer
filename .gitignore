@@ -6,3 +6,4 @@ __pycache__/
 sim/microrom.mem
 sim/nanorom.mem
 sim/build_*.log
+builds/

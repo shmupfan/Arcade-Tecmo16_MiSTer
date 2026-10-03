@@ -1,0 +1,47 @@
+<misterromdescription>
+    <name>Ganbare Ginkun</name>
+    <setname>ginkun</setname>
+    <rbf>tecmo16</rbf>
+    <mameversion>0289</mameversion>
+    <year>1995</year>
+    <manufacturer>Tecmo</manufacturer>
+    <players>2</players>
+    <joystick>8-way</joystick>
+    <rotation>horizontal</rotation>
+    <switches default="FF,FF">
+        <dip name="Coin A" bits="0,1" ids="1C/4C,1C/3C,1C/2C,1C/1C" />
+        <dip name="Coin B" bits="2,3" ids="4C/1C,3C/1C,2C/1C,1C/1C" />
+        <dip name="Continue Plus 1up" bits="4" ids="On,Off" />
+        <dip name="Unused" bits="5" ids="On,Off" />
+        <dip name="Unused" bits="6" ids="On,Off" />
+        <dip name="Unused" bits="7" ids="On,Off" />
+        <dip name="Lives" bits="8,9" ids="2,5,4,3" />
+        <dip name="Difficulty" bits="10,11" ids="Hardest,Hard,Easy,Normal" />
+        <dip name="Flip Screen" bits="12" ids="On,Off" />
+        <dip name="Demo Sounds" bits="13" ids="Off,On" />
+        <dip name="Unused" bits="14" ids="On,Off" />
+        <dip name="Unused" bits="15" ids="On,Off" />
+    </switches>
+    <buttons names="Button 1,Button 2,-,Start,Coin" default="A,B,X,Start,Select" />
+    <rom index="1">
+        <part>02</part>
+    </rom>
+    <rom index="0" zip="ginkun.zip" md5="none">
+        <interleave output="16">
+            <part name="ginkun01.i01" crc="98946fd5" offset="0x0" length="0x40000" map="01" />
+            <part name="ginkun02.i02" crc="e98757f6" offset="0x0" length="0x40000" map="10" />
+        </interleave>
+        <interleave output="16">
+            <part name="ginkun05.i09" crc="1263bd42" offset="0x0" length="0x80000" map="01" />
+            <part name="ginkun04.i05" crc="9e4cf611" offset="0x0" length="0x80000" map="10" />
+        </interleave>
+        <interleave output="16">
+            <part name="ginkun09.i22" crc="233384b9" offset="0x0" length="0x80000" map="01" />
+            <part name="ginkun06.i16" crc="f8589184" offset="0x0" length="0x80000" map="10" />
+        </interleave>
+        <part name="ginkun03.i03" crc="4456e0df" offset="0x0" length="0x20000" />
+        <part name="ginkun07.i17" crc="8836b1aa" offset="0x0" length="0x10000" />
+        <part name="ginkun08.i18" crc="8b7583c7" offset="0x0" length="0x20000" />
+        <part repeat="0x20000">00</part>
+    </rom>
+</misterromdescription>

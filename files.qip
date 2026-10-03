@@ -1,0 +1,49 @@
+# Tecmo 16 core file list, sourced by Arcade-Tecmo16.qsf. Paths relative to
+# the project directory. Only real .qip files (QIP_FILE) may use
+# $::quartus(qip_path).
+
+# core RTL
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/t16_dpram.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/t16_fifo.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/t16_snapram.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/t16_video.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/t16_snd.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/t16_sys.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/t16_sdram.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/t16_board.sv
+
+# T80 sound CPU (VHDL for synthesis; T80s.v is the Verilator translation,
+# not used here; rtl/vendor/t80/PROVENANCE.md)
+set_global_assignment -name VHDL_FILE rtl/vendor/t80/T80_Reg.vhd
+set_global_assignment -name VHDL_FILE rtl/vendor/t80/T80_MCode.vhd
+set_global_assignment -name VHDL_FILE rtl/vendor/t80/T80_ALU.vhd
+set_global_assignment -name VHDL_FILE rtl/vendor/t80/T80.vhd
+set_global_assignment -name VHDL_FILE rtl/vendor/t80/T80s.vhd
+
+# jt51 (YM2151) via its own qip
+set_global_assignment -name QIP_FILE rtl/vendor/jt51/hdl/jt51.qip
+
+# jt6295 (OKI M6295), INTERPOL=0, listed explicitly as in Hyper Duel / Dooyong
+set_global_assignment -name VERILOG_FILE rtl/vendor/jt6295/hdl/jt6295.v
+set_global_assignment -name VERILOG_FILE rtl/vendor/jt6295/hdl/jt6295_adpcm.v
+set_global_assignment -name VERILOG_FILE rtl/vendor/jt6295/hdl/jt6295_timing.v
+set_global_assignment -name VERILOG_FILE rtl/vendor/jt6295/hdl/jt6295_acc.v
+set_global_assignment -name VERILOG_FILE rtl/vendor/jt6295/hdl/jt6295_ctrl.v
+set_global_assignment -name VERILOG_FILE rtl/vendor/jt6295/hdl/jt6295_rom.v
+set_global_assignment -name VERILOG_FILE rtl/vendor/jt6295/hdl/jt6295_serial.v
+set_global_assignment -name VERILOG_FILE rtl/vendor/jt6295/hdl/jt6295_sh_rst.v
+set_global_assignment -name SEARCH_PATH rtl/vendor/jt6295/hdl
+
+# fx68k (cycle-exact 68000); microrom/nanorom .mem found via SEARCH_PATH
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/vendor/fx68k/fx68k.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/vendor/fx68k/fx68kAlu.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/vendor/fx68k/uaddrPla.sv
+set_global_assignment -name SEARCH_PATH rtl/vendor/fx68k
+
+# core PLL: 96 MHz system, 96 MHz -90 degrees for SDRAM_CLK, 48 MHz video
+set_global_assignment -name VERILOG_FILE pll.v
+set_global_assignment -name VERILOG_FILE pll/pll_0002.v
+
+# shell
+set_global_assignment -name SDC_FILE Arcade-Tecmo16.sdc
+set_global_assignment -name SYSTEMVERILOG_FILE Arcade-Tecmo16.sv

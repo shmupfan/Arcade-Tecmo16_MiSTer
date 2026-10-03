@@ -1,0 +1,45 @@
+<misterromdescription>
+    <name>Final Star Force (US)</name>
+    <setname>fstarfrc</setname>
+    <rbf>tecmo16</rbf>
+    <mameversion>0289</mameversion>
+    <year>1992</year>
+    <manufacturer>Tecmo</manufacturer>
+    <players>2</players>
+    <joystick>8-way</joystick>
+    <rotation>vertical (cw)</rotation>
+    <switches default="FF,FF">
+        <dip name="Coin A" bits="0,1" ids="1C/4C,1C/3C,1C/2C,1C/1C" />
+        <dip name="Coin B" bits="2,3" ids="4C/1C,3C/1C,2C/1C,1C/1C" />
+        <dip name="Flip Screen" bits="4" ids="On,Off" />
+        <dip name="Demo Sounds" bits="5" ids="Off,On" />
+        <dip name="Allow Continue" bits="6" ids="No,Yes" />
+        <dip name="Free Play" bits="7" ids="On,Off" />
+        <dip name="Lives" bits="8,9" ids="2,5,4,3" />
+        <dip name="Difficulty" bits="10,11" ids="Hardest,Hard,Easy,Medium" />
+        <dip name="Level Up Speed" bits="12,13" ids="Slowest,Slow,Fastest,Fast" />
+        <dip name="Bonus Life" bits="14,15" ids="every 500000/once at highest score,240000/1400000,220000/1200000,200000/1000000" />
+    </switches>
+    <buttons names="Button 1,Button 2,-,Start,Coin" default="A,B,X,Start,Select" />
+    <rom index="1">
+        <part>00</part>
+    </rom>
+    <rom index="0" zip="fstarfrc.zip" md5="none">
+        <interleave output="16">
+            <part name="fstarf01.rom" crc="94c71de6" offset="0x0" length="0x40000" map="01" />
+            <part name="fstarf02.rom" crc="b1a07761" offset="0x0" length="0x40000" map="10" />
+        </interleave>
+        <interleave output="16">
+            <part name="fstarf05.rom" crc="77a281e7" offset="0x0" length="0x80000" map="01" />
+            <part name="fstarf04.rom" crc="398a920d" offset="0x0" length="0x80000" map="10" />
+        </interleave>
+        <interleave output="16">
+            <part name="fstarf09.rom" crc="d51341d2" offset="0x0" length="0x80000" map="01" />
+            <part name="fstarf06.rom" crc="07e40e87" offset="0x0" length="0x80000" map="10" />
+        </interleave>
+        <part name="fstarf03.rom" crc="54375335" offset="0x0" length="0x20000" />
+        <part name="fstarf07.rom" crc="e0ad5de1" offset="0x0" length="0x10000" />
+        <part name="fstarf08.rom" crc="f0ad5693" offset="0x0" length="0x20000" />
+        <part repeat="0x20000">00</part>
+    </rom>
+</misterromdescription>

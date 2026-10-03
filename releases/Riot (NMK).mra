@@ -1,0 +1,46 @@
+<misterromdescription>
+    <name>Riot (NMK)</name>
+    <setname>riot</setname>
+    <rbf>tecmo16</rbf>
+    <mameversion>0289</mameversion>
+    <year>1992</year>
+    <manufacturer>Tecmo (NMK license)</manufacturer>
+    <players>2</players>
+    <joystick>8-way</joystick>
+    <rotation>horizontal</rotation>
+    <switches default="FF,FC">
+        <dip name="Coin A" bits="0,2" ids="5C/1C,4C/1C,3C/1C,1C/4C,2C/1C,1C/3C,1C/2C,1C/1C" />
+        <dip name="Coin B" bits="3,5" ids="5C/1C,4C/1C,3C/1C,1C/4C,2C/1C,1C/3C,1C/2C,1C/1C" />
+        <dip name="Starting Coins" bits="6" ids="2,1" />
+        <dip name="Unknown" bits="7" ids="On,Off" />
+        <dip name="Lives" bits="8,9" ids="4,3,2,1" />
+        <dip name="Unknown" bits="10" ids="On,Off" />
+        <dip name="Unknown" bits="11" ids="On,Off" />
+        <dip name="Flip Screen" bits="12" ids="On,Off" />
+        <dip name="Demo Sounds" bits="13" ids="Off,On" />
+        <dip name="Unknown" bits="14" ids="On,Off" />
+        <dip name="Unknown" bits="15" ids="On,Off" />
+    </switches>
+    <buttons names="Button 1,Button 2,Button 3,Start,Coin" default="A,B,X,Start,Select" />
+    <rom index="1">
+        <part>01</part>
+    </rom>
+    <rom index="0" zip="riot.zip" md5="none">
+        <interleave output="16">
+            <part name="1.ic1" crc="9ef4232e" offset="0x0" length="0x40000" map="01" />
+            <part name="2.ic2" crc="f2c6fbbf" offset="0x0" length="0x40000" map="10" />
+        </interleave>
+        <interleave output="16">
+            <part name="5.ic9" crc="056fce78" offset="0x0" length="0x80000" map="01" />
+            <part name="4.ic5" crc="0894e7b4" offset="0x0" length="0x80000" map="10" />
+        </interleave>
+        <interleave output="16">
+            <part name="9.ic22" crc="0ead54f3" offset="0x0" length="0x80000" map="01" />
+            <part name="6.ic16" crc="96ef61da" offset="0x0" length="0x80000" map="10" />
+        </interleave>
+        <part name="3.ic3" crc="f60f5c96" offset="0x0" length="0x20000" />
+        <part name="7.ic17" crc="0a95b8f3" offset="0x0" length="0x10000" />
+        <part name="8.ic18" crc="4b70e266" offset="0x0" length="0x20000" />
+        <part repeat="0x20000">00</part>
+    </rom>
+</misterromdescription>

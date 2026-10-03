@@ -273,27 +273,30 @@ module t16_video #(
   assign char_va = t_idx;
 
   // ---- sprite walker (tecmo_spr.cpp:74-178)
-  localparam logic [2:0] W_A0 = 3'd0, W_A2 = 3'd1, W_A3 = 3'd2, W_HIT = 3'd3, W_A4 = 3'd4, W_PUSH = 3'd5, W_IDLE = 3'd6;
+  localparam logic [2:0] W_A0 = 3'd0, W_A2 = 3'd1, W_A3 = 3'd2, W_HIT = 3'd3, W_A4 = 3'd4, W_PUSH = 3'd5, W_IDLE = 3'd6,
+                         W_HIT2 = 3'd7;
   logic [2:0]  w_st;
   logic [7:0]  w_e;             // entry
   logic        w_done;
   logic [15:0] w_attr, w_colw;
   logic [10:0] w_ys;            // signed y after the flip transform
   logic [2:0]  w_row, w_ln;
+  logic [10:0] w_ypos;          // y_pos registered in W_HIT (timing: RAM -> flip -> hit test was one clock)
   logic [15:0] w_num;
   wire  [1:0]  w_lx    = w_colw[1:0];
   wire  [1:0]  w_ly    = riot ? w_colw[1:0] : w_colw[3:2];     // t16:337-338
   wire         w_fx    = w_attr[0] ^ r_flip;
   wire         w_fy    = w_attr[1] ^ r_flip;
 
-  // y hit test on the word-3 cycle (spr_q = word 3)
+  // y position from word 3 (spr_q = word 3 in W_HIT), registered as w_ypos;
+  // the hit test runs on w_ypos in W_HIT2
   wire  [10:0] y_raw   = {2'd0, spr_q[8:0]};
   wire  [10:0] y_sgn   = spr_q[8] ? y_raw - 11'd512 : y_raw;
   wire  [10:0] y_h8    = 11'd8 << w_ly;                          // 8 x cells
   wire  [10:0] y_fl0   = 11'd256 - y_h8 - y_sgn;
   wire  [10:0] y_fl    = ($signed(y_fl0) <= -11'sd256) ? y_fl0 + 11'd512 : y_fl0;
   wire  [10:0] y_pos   = r_flip ? y_fl : y_sgn;
-  wire  [10:0] y_d     = {3'd0, r_line} - y_pos;
+  wire  [10:0] y_d     = {3'd0, r_line} - w_ypos;
   wire         y_hit   = !y_d[10] && y_d < y_h8;
   wire  [2:0]  y_cell  = y_d[5:3];
   wire  [2:0]  y_hm1   = 3'((11'd1 << w_ly) - 11'd1);
@@ -464,6 +467,10 @@ module t16_video #(
             w_st <= W_HIT;
           end
           W_HIT: begin                              // spr_q = word 3
+            w_ypos <= y_pos;
+            w_st <= W_HIT2;
+          end
+          W_HIT2: begin                             // hit test on w_ypos
             if (y_hit) begin
               w_row <= w_fy ? y_hm1 - y_cell : y_cell;
               w_ln  <= w_fy ? 3'd7 - y_d[2:0] : y_d[2:0];
@@ -502,6 +509,7 @@ module t16_video #(
       W_A2:   spr_va = {w_e, 3'd2};
       W_A3:   spr_va = {w_e, 3'd3};
       W_HIT:  spr_va = {w_e, 3'd1};
+      W_HIT2: spr_va = {w_e, 3'd1};
       W_A4:   spr_va = {w_e, 3'd4};
       W_PUSH: spr_va = {w_e, 3'd4};
       default: spr_va = {w_e, 3'd0};
@@ -509,8 +517,8 @@ module t16_video #(
   end
   // the word arriving in a state is the one addressed in the previous state:
   // W_A0 -> word 0 in W_A2 (address presented in W_A0), W_A2 -> word 2 in
-  // W_A3, W_A3 -> word 3 in W_HIT, W_HIT -> word 1 in W_A4, W_A4 -> word 4
-  // in W_PUSH
+  // W_A3, W_A3 -> word 3 in W_HIT, W_HIT2 -> word 1 in W_A4 (W_HIT presents
+  // the same address), W_A4 -> word 4 in W_PUSH
   assign h_push = !go && w_st == W_PUSH && !h_full && busy;
   assign h_d    = {x_pos, w_lx, w_fx, w_num[14:0], w_row, w_ln,
                    w_attr[7:6], w_attr[5], w_colw[7:4]};
