@@ -197,7 +197,7 @@ the shmupfan Distribution database.
 | R11 | Interrupt acknowledge timing on the board (fx68k's E-clock-synchronised autovector, kept, against MAME's): where IRQ5 lands in the code, hence the interrupted context saved on the stack and in Riot's task blocks | m2_findings 5 |
 | R12 | What a YM2151 read at A0 = 0 (0xFC04) returns; the core returns 0xFF as MAME's ymfm | m2_findings 9 |
 | R13 | What the unmapped I/O at 0x150060-0x150067 and 0x150080-0x1500fe and the video registers at 0x160020-0x16002e drive (all written by the games, ignored by MAME and the core) | m2_findings 7 |
-| R14 | M6295 latency from a stop command to the status reading idle (jt6295: up to one channel slot, 134 us; MAME: at once) | m3_findings 4 |
+| R14 | M6295 latency from a stop command to the status reading idle (jt6295: up to one channel slot, 134 us; MAME: at once). 2026-10-03: settled at datasheet level (MSM6295 p. 73: BUSY falls at the next sample after a stop, within one sample period; MAME's at-once is not what the datasheet describes); jt6295 patch 3 implements it (m3_findings 11); the exact clock inside the sample period is not specified | m3_findings 4, 11 |
 | R15 | YM2151 timer phase against the CPUs after reset: jt51 steps timers per sample cycle (as Nuked-OPM), MAME counts from the write; a 12.5 us sound CPU phase on Final Star Force and Ginkun | m3_findings 3 |
 
 ## 7. Risks
