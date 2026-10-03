@@ -64,7 +64,7 @@ m4-lint:
 m4-lint-shell:
 	$(VERILATOR) --lint-only -Wno-fatal -Wno-TIMESCALEMOD -DLINT_STUBS -DMISTER_FB=1 -I.. -I../sys \
 	  -I$(FX68K) -I../rtl/vendor/jt6295/hdl -I../rtl/vendor/jt51/hdl --top-module emu \
-	  m4/lint_stubs.sv ../Arcade-Tecmo16.sv $(M4BRTL)
+	  m4/lint_stubs.sv ../sys/math.sv ../sys/video_freak.sv ../Arcade-Tecmo16.sv $(M4BRTL)
 
 M4BBIN := $(M4DIR)/board_obj/Vtb_board
 
