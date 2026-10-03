@@ -84,10 +84,30 @@ static std::unique_ptr<Vtb_board> top;
 static std::vector<uint8_t> sdram;
 static uint64_t cycles = 0;
 
+// Video-during-reset statistics (boot black-screen fix): vsync rising
+// edges and lit active pixels before the first o_vbl (download, SDRAM init,
+// core reset), printed once at that vblank.
+static int vphase = 0;
+static long vs_edges, lit_px, de_px;
+static bool vs_prev = false;
 static void tick() {
     top->clk = 0; top->eval();
     top->clk = 1; top->eval();
     cycles++;
+    if (vphase == 0) {
+        bool vs = top->rootp->tb_board__DOT__vs;
+        if (vs && !vs_prev) vs_edges++;
+        vs_prev = vs;
+        if (top->o_de && top->o_ce_pix) {
+            de_px++;
+            if (top->o_r | top->o_g | top->o_b) lit_px++;
+        }
+        if (top->o_vbl) {
+            printf("PRE-RUN vs_edges %ld de_px %ld lit_px %ld (clock %llu)\n",
+                   vs_edges, de_px, lit_px, (unsigned long long)cycles);
+            vphase = 1;
+        }
+    }
 }
 
 static void send(int index, uint32_t addr, uint8_t data) {

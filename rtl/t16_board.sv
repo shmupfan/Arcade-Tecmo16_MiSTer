@@ -119,6 +119,7 @@ module t16_board #(
 
   // ------------------------------------------------------------------ SDRAM
   logic        core_rst_n;
+  logic        core_run;
   logic        sd_ready;
   logic        prom_req, prom_ok;
   logic [18:1] prom_addr;
@@ -135,7 +136,7 @@ module t16_board #(
     .clk(clk), .rst_n(i_sdram_rst_n), .o_ready(sd_ready),
     .i_dl_wr(rom_wr), .i_dl_addr(i_ioctl_addr[21:0]), .i_dl_data(i_ioctl_dout),
     .o_dl_busy(o_ioctl_wait),
-    .i_cpu_run(core_rst_n), .i_cpu_req(prom_req), .i_cpu_addr(prom_addr), .o_cpu_data(prom_data), .o_cpu_ok(prom_ok),
+    .i_cpu_run(core_run), .i_cpu_req(prom_req), .i_cpu_addr(prom_addr), .o_cpu_data(prom_data), .o_cpu_ok(prom_ok),
     .i_gfx_req(rom_req), .i_gfx_addr(rom_addr), .o_gfx_gnt(rom_gnt),
     .o_gfx_rv(rom_rv), .o_gfx_data(rom_data),
     .i_oki_addr(oki_addr), .o_oki_data(oki_data), .o_oki_ok(oki_ok),
@@ -150,8 +151,13 @@ module t16_board #(
   always_ff @(posedge clk) core_rst_n <= !i_reset && !i_ioctl_download && sd_ready;
 
   t16_sys #(.CLK_HZ(CLK_HZ), .PIX_NUM(PIX_NUM), .PIX_DEN(PIX_DEN), .V_TOTAL(V_TOTAL),
-            .IRQ_HOLD(IRQ_HOLD)) u_sys (
-    .clk(clk), .rst_n(core_rst_n), .i_machine(machine), .i_pause(i_pause),
+            .IRQ_HOLD(IRQ_HOLD), .FREE_TIMING(1'b1)) u_sys (
+    // FREE_TIMING: sync keeps running (black picture) during the ROM
+    // download and SDRAM init instead of stopping, so the MiSTer scaler
+    // never loses the signal (Dooyong showed a green "no input" screen);
+    // t16_sys releases the core on the raster's power-on phase (core_run).
+    .clk(clk), .rst_n(core_rst_n), .i_pwr_rst_n(i_sdram_rst_n), .o_run(core_run),
+    .i_machine(machine), .i_pause(i_pause),
     .o_prom_req(prom_req), .o_prom_addr(prom_addr), .i_prom_data(prom_data), .i_prom_ok(prom_ok),
     .o_rom_req(rom_req), .o_rom_addr(rom_addr),
     .i_rom_gnt(rom_gnt), .i_rom_rv(rom_rv), .i_rom_data(rom_data),

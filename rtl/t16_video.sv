@@ -38,11 +38,20 @@
 module t16_video #(
     parameter bit LATCH      = 1'b0,
     parameter int LATCH_LINE = 14,
-    parameter int V_TOTAL    = 264
+    parameter int V_TOTAL    = 264,
+    // 1 (MiSTer board): the raster counters and sync run from power-on and
+    // keep going while the core is held in reset (ROM download, SDRAM
+    // init), with black RGB; i_tim_rst reloads their power-on state once a
+    // frame and t16_sys releases the core on the clock after that reload, so
+    // the game starts exactly as from a plain reset release (M1/M2 state).
+    // 0 (simulation default): counters and sync reset with rst_n.
+    parameter bit FREE_TIMING = 1'b0
 ) (
     input  logic        clk,
     input  logic        rst_n,
     input  logic        ce_pix,          // 6 MHz: exactly one clock in 16
+    input  logic        i_tim_rst,       // FREE_TIMING: synchronous raster reload
+    output logic        o_tim_evt,       // FREE_TIMING: the next pixel starts the power-on line
     input  logic [1:0]  i_machine,       // 0 Final Star Force, 1 Riot, 2 Ginkun
 
     // CPU side, decoded by the system (M2): word address within each RAM,
@@ -114,8 +123,11 @@ module t16_video #(
   logic [8:0] vcnt /* verilator public_flat_rd */;
   // Power-on phase as in MAME: the screen starts at the first vblank line
   // (the Dooyong oracle measured this, dooyong ym2203_findings)
+  wire tim_rst = FREE_TIMING ? i_tim_rst : !rst_n;
+  assign o_tim_evt = ce_pix && hcnt == 9'(H_TOTAL - 1) &&
+                     ((vcnt == 9'(V_TOTAL - 1)) ? 9'd0 : vcnt + 9'd1) == 9'(V_VBL);
   always_ff @(posedge clk) begin
-    if (!rst_n) begin
+    if (tim_rst) begin
       hcnt <= '0;
       vcnt <= 9'(V_VBL);
     end else if (ce_pix) begin
@@ -678,7 +690,7 @@ module t16_video #(
   end
 
   always_ff @(posedge clk) begin
-    if (!rst_n) begin
+    if (tim_rst) begin
       o_de <= 1'b0;
       o_hblank <= 1'b1;
       o_vblank <= 1'b1;
@@ -691,9 +703,10 @@ module t16_video #(
       o_hs     <= hcnt >= 9'(HS_START) && hcnt < 9'(HS_END);
       o_vs     <= vcnt >= 9'(VS_START) && vcnt < 9'(VS_START + 3);
       // xBGR_444 (t16:688): R bits 0-3, G 4-7, B 8-11, 4 to 8 bits as (c << 4) | c
-      o_r <= {col_f[3:0], col_f[3:0]};
-      o_g <= {col_f[7:4], col_f[7:4]};
-      o_b <= {col_f[11:8], col_f[11:8]};
+      // black while the core is held in reset (FREE_TIMING keeps sync running)
+      o_r <= (rst_n || !FREE_TIMING) ? {col_f[3:0], col_f[3:0]}   : 8'd0;
+      o_g <= (rst_n || !FREE_TIMING) ? {col_f[7:4], col_f[7:4]}   : 8'd0;
+      o_b <= (rst_n || !FREE_TIMING) ? {col_f[11:8], col_f[11:8]} : 8'd0;
       o_dbg_lay <= lay1;
     end
   end

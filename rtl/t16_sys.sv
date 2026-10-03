@@ -68,10 +68,15 @@ module t16_sys #(
     parameter int PIX_DEN  = 16,
     parameter int V_TOTAL  = 264,
     parameter int IRQ_HOLD = 96000,       // clocks: 1000 us at 96 MHz
-    parameter bit LATCH    = 1'b0         // t16_video LATCH (Lee 2026-10-02: live)
+    parameter bit LATCH    = 1'b0,        // t16_video LATCH (Lee 2026-10-02: live)
+    // 1 on the MiSTer board: the video raster runs from i_pwr_rst_n and keeps
+    // sync during the core reset (t16_video FREE_TIMING); 0 = M1/M2 behaviour
+    parameter bit FREE_TIMING = 1'b0
 ) (
     input  logic        clk,
-    input  logic        rst_n,
+    input  logic        rst_n,          // core reset request (active low)
+    input  logic        i_pwr_rst_n,    // FREE_TIMING: power-on reset of the video raster
+    output logic        o_run,          // core out of reset (effective)
     input  logic [1:0]  i_machine,       // 0 Final Star Force, 1 Riot, 2 Ginkun
     input  logic        i_pause,
 
@@ -134,6 +139,25 @@ module t16_sys #(
 
   wire base = i_machine == 2'd0;
 
+  // ================================================================ reset
+  // FREE_TIMING: the raster counters and the pixel enable run from power-on;
+  // tim_evt (t16_video) marks the pixel enable that would start the
+  // power-on line (V_VBL), and while the core is in reset that enable
+  // reloads the counters and the pixel accumulator to their reset values
+  // instead. The core is released on the clock after such a reload
+  // (tim_fresh), so its first running clock sees exactly the state a reset
+  // release gives (M1/M2 verified).
+  logic tim_evt, tim_fresh, run_q, tim_rst;
+  logic crst_n;
+  wire  tim_load = FREE_TIMING && !crst_n && tim_evt;
+  assign tim_rst = FREE_TIMING ? (!i_pwr_rst_n || tim_load) : !rst_n;
+  assign crst_n  = FREE_TIMING ? (rst_n && i_pwr_rst_n && (run_q || tim_fresh)) : rst_n;
+  always_ff @(posedge clk) begin
+    tim_fresh <= tim_rst;
+    run_q     <= crst_n;
+  end
+  assign o_run = crst_n;
+
   // ================================================================ enables
   logic        ce_pix /* verilator public_flat_rd */;
   logic [31:0] pix_acc;
@@ -141,7 +165,7 @@ module t16_sys #(
   logic        m_ph, en_phi1, en_phi2;
   localparam int F68 = 12000000;   // 24 MHz / 2 (t16:663)
   always_ff @(posedge clk) begin
-    if (!rst_n) begin
+    if (tim_rst) begin
       pix_acc <= '0;
       ce_pix  <= 1'b0;
     end else if (pix_acc + 32'(PIX_NUM) >= 32'(PIX_DEN)) begin
@@ -155,7 +179,7 @@ module t16_sys #(
   always_ff @(posedge clk) begin
     en_phi1 <= 1'b0;
     en_phi2 <= 1'b0;
-    if (!rst_n) begin
+    if (!crst_n) begin
       m_acc <= '0;
       m_ph  <= 1'b0;
     end else if (!i_pause) begin
@@ -182,7 +206,7 @@ module t16_sys #(
 
   fx68k u_m68k (
     .clk(clk), .HALTn(1'b1),
-    .extReset(!rst_n), .pwrUp(!rst_n),
+    .extReset(!crst_n), .pwrUp(!crst_n),
     .enPhi1(en_phi1), .enPhi2(en_phi2),
     .eRWn(m_rw), .ASn(m_asn), .LDSn(m_ldsn), .UDSn(m_udsn),
     .E(), .VMAn(),
@@ -262,7 +286,7 @@ module t16_sys #(
   assign o_prom_req  = (mbst == MB_ROM);
   assign o_prom_addr = m_a[18:1];
   always_ff @(posedge clk) begin
-    if (!rst_n) begin
+    if (!crst_n) begin
       mbst    <= MB_IDLE;
       m_wdone <= 1'b0;
       o_dbg_prom_late <= '0;
@@ -312,7 +336,7 @@ module t16_sys #(
   logic        irq5 /* verilator public_flat_rd */;
   wire         irq_clr_w = m_wstb && s_x21;
   always_ff @(posedge clk) begin
-    if (!rst_n) begin
+    if (!crst_n) begin
       irq5     <= 1'b0;
       hold_cnt <= '0;
     end else begin
@@ -348,8 +372,9 @@ module t16_sys #(
   logic [15:0] pal_q, char_q, fgv_q, fgc_q, bgv_q, bgc_q, spr_q;
   wire  [11:0] vaddr = s_pal ? m_a[12:1] : (base && s_tile) ? {2'b00, m_a[10:1]} : {1'b0, m_a[11:1]};
   wire         flip_w = m_wstb && s_flip;
-  t16_video #(.LATCH(LATCH), .V_TOTAL(V_TOTAL)) u_video (
-    .clk, .rst_n, .ce_pix, .i_machine,
+  t16_video #(.LATCH(LATCH), .V_TOTAL(V_TOTAL), .FREE_TIMING(FREE_TIMING)) u_video (
+    .clk, .rst_n(crst_n), .ce_pix, .i_machine,
+    .i_tim_rst(tim_rst), .o_tim_evt(tim_evt),
     .i_cpu_addr(vaddr), .i_cpu_din(wdata), .i_cpu_be(flip_w ? 2'b11 : m_be),
     .i_pal_we(m_wstb && s_pal), .i_char_we(m_wstb && s_char),
     .i_fgv_we(m_wstb && s_fgv), .i_fgc_we(m_wstb && s_fgc),
@@ -367,7 +392,7 @@ module t16_sys #(
 
   // ================================================================ sound
   t16_snd #(.CLK_HZ(CLK_HZ)) u_snd (
-    .clk, .rst_n, .i_pause,
+    .clk, .rst_n(crst_n), .i_pause,
     .i_dl_we(i_snd_dl_we), .i_dl_addr(i_snd_dl_addr), .i_dl_data(i_snd_dl_data),
     .i_latch_we(latch_we), .i_latch_d(m_dout[7:0]),
     .o_oki_addr, .i_oki_data, .i_oki_ok,
@@ -399,7 +424,7 @@ module t16_sys #(
   logic m_asn_q;
   always_ff @(posedge clk) begin
     m_asn_q <= m_asn;
-    if (!rst_n) begin
+    if (!crst_n) begin
       o_dbg_rom_writes <= '0;
       o_dbg_unmapped   <= '0;
       o_dbg_vreg_other <= '0;

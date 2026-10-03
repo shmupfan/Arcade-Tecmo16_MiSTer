@@ -71,6 +71,7 @@ localparam CONF_STR = {
 	"-;",
 	"H0OMN,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"H0O2,Orientation,Vertical,Horizontal;",
+	"H1O7,Rotate,CW,CCW;",
 	"O35,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
 	"O6,Pause when OSD is open,On,Off;",
 	"-;",
@@ -109,7 +110,7 @@ hps_io #(.CONF_STR(CONF_STR)) hps_io (
 	.gamma_bus(gamma_bus),
 	.buttons(buttons),
 	.status(status),
-	.status_menumask({15'd0, direct_video}),
+	.status_menumask({14'd0, ~vertical, direct_video}),
 	.forced_scandoubler(forced_scandoubler),
 	.direct_video(direct_video),
 	.video_rotated(video_rotated),
@@ -224,7 +225,9 @@ t16_board #(.CLK_HZ(96000000), .PIX_NUM(PIX_NUM), .PIX_DEN(PIX_DEN), .V_TOTAL(V_
 // DIP switch (the game writes the flip register, spec), not an OSD option.
 // ---------------------------------------------------------------------------
 wire no_rotate  = status[2] | direct_video | ~vertical;
-wire rotate_ccw = 1'b0;          // ROT90: turn the picture 90 degrees clockwise
+// ROT90 turns the picture 90 degrees clockwise (MAME). OSD "Rotate CCW" turns
+// it the other way, for monitors mounted for ROT270 games (status[7]).
+wire rotate_ccw = status[7];
 wire flip       = 1'b0;
 
 wire [1:0] ar = status[23:22];
