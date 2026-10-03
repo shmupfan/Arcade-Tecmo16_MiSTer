@@ -3,3 +3,6 @@ sim/build/
 sim/mame/out/
 *.rbf
 __pycache__/
+sim/microrom.mem
+sim/nanorom.mem
+sim/build_*.log

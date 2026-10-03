@@ -88,8 +88,16 @@ display lag on every frame, which no evidence supports.
 (6,144 system clocks), V_TOTAL = 264 lines: MAME's TODO guess for the real
 board (t16:20), 59.19 Hz, against MAME's own 59.17 Hz / 256 lines (R3). The
 visible window is MAME's (256 x 224, lines 16-239, vblank from line 240);
-sync positions are not in the driver (R3). Planned for M2: 68000 enable
-12 MHz (/8), Z80 and YM2151 4 MHz (/24), OKI 1 MHz.
+sync positions are not in the driver (R3). M2: 68000 phases every 4 clocks
+(12 MHz), Z80 and YM2151 every 24 (4 MHz), M6295 every 96 (1 MHz), all
+fractional enables in `t16_sys` / `t16_snd`.
+
+M2 gate raster (`m2` build, m2_findings 4): MAME's 59.17 Hz, 256 lines, a
+pixel enable of 47336/781250 (384 pixel periods per MAME line, exactly
+MAME's frame period on average) and IRQ5 held 96,000 clocks (MAME's
+1000 us). The release raster is a decision for Lee (section 8 of
+m2_findings): MAME's raster, or the 6 MHz 384 x 264 guess (the `t16_sys`
+defaults), both unmeasured (R3, R9).
 
 ### 4.3 SDRAM layout (fixed in tools/build_regions.py)
 
@@ -111,9 +119,11 @@ short (decided in M4).
 Video, LIVE build: palette 4,096 x 16 (7 M10K), five 2,048-word tile RAMs
 (20), sprite list live + two buffers + marks (14), four 512 x 16 line
 buffers (4): about 45 M10K. The LATCH build adds a shadow and a mark RAM
-per tile RAM and the palette: about 41 more. System (M2): main RAM 16 KB,
-Final Star Force work RAM 24 KB, Riot extra 4 KB, Z80 RAM 3 KB: about 40
-M10K. Total about 85 (LIVE) of 553.
+per tile RAM and the palette: about 41 more. System (M2, as built): main
+RAM 16 KB (8 M10K), one 32 KB work RAM block serving Final Star Force's 24 KB
+and Riot/Ginkun's 4 KB (16), sound ROM 64 KB in block RAM (32; SDRAM is the
+alternative in M4), sound RAM 4 KB (2): about 58 M10K. Total about 103 (LIVE)
+of 553.
 
 ## 5. Milestones
 
@@ -136,7 +146,7 @@ both tilemap widths, flip screen. Mid-scan replay of every captured frame
 with visible-scan writes, each difference from MAME classified. jtgaiden
 reuse and the latching structure decided (4.1).
 
-### M2. Full-system boot in Verilator
+### M2. Full-system boot in Verilator (DONE, see m2_findings.md)
 
 fx68k + T80 + memory map + IRQ5 (held through vblank, released by
 0x150021) + sound latch + inputs. Boot fstarfrc from power-on through the
@@ -146,6 +156,14 @@ per frame depends on the vblank length (R3): divergences from that are
 expected and must be explained.
 
 ### M3. Sound
+
+Starting point from M2 (m2_findings 5.1): the sound command stream from the
+68000 matches MAME's in order and value on every run, and the sound RAM
+tracks MAME's until a music command, after which the sequencer's channel
+counters sit exactly one tick apart from MAME's (Ginkun from frame 785,
+Final Star Force gameplay from about frame 920; Riot gameplay never diverges
+in 4,700 frames). jt51's timer model is not the cause (the
+`JT51_TIMER_EXACT` build diverges at the same frame).
 
 T80 + jt51 + jt6295 from the Dooyong sound path; YM2151 stereo, OKI
 routed to both sides (spec 2). Compare register and command streams with
@@ -176,7 +194,10 @@ the shmupfan Distribution database.
 | R7 | Value read at 0x160000 (Final Star Force reads it at scene changes) | t16:384 |
 | R8 | How the hardware selects the 32- or 64-column tilemap | t16:373-374 |
 | R9 | Meaning of the ten video registers MAME ignores (0x160002-0x16001c, written at boot; values include 0x010, 0x0ef, 0x0df = lines 16, 239, 223): raster, window or sync settings? | m0_findings 3 |
-| R10 | Sprites (8-pixel cells) the PCB can draw on one line: MAME has no limit; the core's line pass takes 664 cells with the pessimistic ROM model, the games use at most 146 | m1_findings 6 |
+| R10 | Sprites (8-pixel cells) the PCB can draw on one line: MAME has no limit; the core's line pass takes 664 cells with the pessimistic ROM model, the games use at most 146. Final Star Force's boot RAM test fills sprite RAM with 0xFFFF for one frame (2,048 cells a line), which the core cannot draw (m2_findings 6) | m1_findings 6 |
+| R11 | Interrupt acknowledge timing on the board (fx68k's E-clock-synchronised autovector, kept, against MAME's): where IRQ5 lands in the code, hence the interrupted context saved on the stack and in Riot's task blocks | m2_findings 5 |
+| R12 | What a YM2151 read at A0 = 0 (0xFC04) returns; the core returns 0xFF as MAME's ymfm | m2_findings 9 |
+| R13 | What the unmapped I/O at 0x150060-0x150067 and 0x150080-0x1500fe and the video registers at 0x160020-0x16002e drive (all written by the games, ignored by MAME and the core) | m2_findings 7 |
 
 ## 7. Risks
 

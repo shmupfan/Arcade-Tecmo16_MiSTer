@@ -18,6 +18,14 @@
 --                write (M1 mid-scan replay, sim/m1/midscan.py)
 --   NO_DUMP      1 = do not write frame dumps (use with VISLOG to log a
 --                capture that already has its dumps)
+--   MAINRAM      1 = for every frame in DUMP_FRAMES write ram/NNNNNN.main (main
+--                RAM 0x100000-0x103fff), .work (Final Star Force work RAM
+--                0x122000-0x127fff, Riot/Ginkun extra RAM 0x124000-0x124fff)
+--                and .snd (sound RAM 0xf000-0xfbff then 0xfffe-0xffff), and
+--                reads.csv: every main CPU read of 0x150020-0x150051 and
+--                0x160000-0x16001f with the value MAME returned (M2)
+--   STACKLOW     1 = record the lowest 68000 SP seen at any main RAM write
+--                (summary.txt "stack low-water")
 --   INPUTS       "frame:PORT:Field name:value;..." input events
 --   FIELDS       "PORT:Field name:value;..." DIP user values at start
 --
@@ -80,6 +88,8 @@ local machine_name = MACHINE[setname]
 assert(machine_name, "unknown set " .. setname)
 
 local main = m.devices[":maincpu"].spaces["program"]
+local sndsp = m.devices[":audiocpu"].spaces["program"]
+local mainram_on = os.getenv("MAINRAM") == "1"
 local screen = m.screens[":screen"]
 
 ---------------------------------------------------------------------------
@@ -228,6 +238,34 @@ tap(0x150040, 0x15005f, "sys_other", function(o, d, mk) logw("sys_other", o, d, 
 tap(0x000000, 0x07ffff, "romw", function(o, d, mk) logw("romw", o, d, mk) end)
 rtap(0x160000, 0x16001f, "vreg_read")
 
+-- STACKLOW=1: the lowest 68000 stack pointer seen at any main RAM write
+-- (the stack's low-water mark), written to summary.txt (M2: RAM below the
+-- stack pointer at a notifier is dead stack, not game state)
+local stack_low = 0x1000000
+if os.getenv("STACKLOW") == "1" then
+  local spst = m.devices[":maincpu"].state["SP"]
+  local h = main:install_write_tap(0x100000, 0x103fff, "stacklow", function(offset, data, mask)
+    local sp = spst.value
+    if sp < stack_low then stack_low = sp end
+  end)
+  table.insert(_G._t16_taps, h)
+end
+
+local rlog = nil
+if mainram_on then
+  rlog = assert(io.open(outdir .. "/reads.csv", "w"))
+  rlog:write("frame,line,hpos,addr,data,mask\n")
+  local function rl(lo, hi, name)
+    local h = main:install_read_tap(lo, hi, name, function(offset, data, mask)
+      local line, hpos = beam()
+      rlog:write(string.format("%d,%d,%d,%06x,%x,%x\n", frame, line, hpos, offset, data, mask))
+    end)
+    table.insert(_G._t16_taps, h)
+  end
+  rl(0x150020, 0x150051, "rlog_io")
+  rl(0x160000, 0x16001f, "rlog_vreg")
+end
+
 -- palette entries written since power-on (BLACK palette at start,
 -- tecmo16.cpp:688)
 local pal_written = {}
@@ -282,6 +320,36 @@ local function wfile(path, data)
   local f = assert(io.open(path, "wb"))
   f:write(data)
   f:close()
+end
+
+local function space_words(sp, lo, hi)
+  local parts = {}
+  local char = string.char
+  for a = lo, hi, 2 do
+    local v = sp:read_u16(a)
+    parts[#parts + 1] = char(v >> 8, v & 0xff)
+  end
+  return table.concat(parts)
+end
+local function space_bytes(sp, lo, hi)
+  local parts = {}
+  local char = string.char
+  for a = lo, hi do parts[#parts + 1] = char(sp:read_u8(a)) end
+  return table.concat(parts)
+end
+local function dump_ram(n)
+  local d = outdir .. "/ram"
+  os.execute("mkdir -p '" .. d .. "'")
+  local b = string.format("%s/%06d", d, n)
+  wfile(b .. ".main", space_words(main, 0x100000, 0x103fff))
+  if machine_name == "base" then
+    wfile(b .. ".work", space_words(main, 0x122000, 0x127fff))
+  else
+    wfile(b .. ".work", space_words(main, 0x124000, 0x124fff))
+  end
+  wfile(b .. ".snd", space_bytes(sndsp, 0xf000, 0xfbff) .. space_bytes(sndsp, 0xfffe, 0xffff))
+  local st = m.devices[":maincpu"].state
+  wfile(b .. ".cpu", string.format("%x %x %x\n", st["SP"].value, st["PC"].value, st["SR"].value))
 end
 
 local pending_pixels = nil
@@ -395,6 +463,7 @@ _G._t16_frame = emu.add_machine_frame_notifier(function()
     pending_pixels = nil
   end
   if dump_frames[frame] and not no_dump then dump_frame(frame, cur) end
+  if dump_frames[frame] and mainram_on then dump_ram(frame) end
   prev_sprbuf = cur
   local ev = events[frame]
   if ev then
@@ -406,6 +475,7 @@ _G._t16_frame = emu.add_machine_frame_notifier(function()
   if frame > total then
     wlog:close(); sumlog:close(); ftrace:close(); ilog:close()
     if vlog then vlog:close() end
+    if rlog then rlog:close() end
     local s = assert(io.open(outdir .. "/summary.txt", "w"))
     s:write(string.format("set %s machine %s frames %d\n", setname, machine_name, frame))
     s:write(vpos_check .. "\n")
@@ -414,6 +484,7 @@ _G._t16_frame = emu.add_machine_frame_notifier(function()
     table.sort(keys)
     for _, k in ipairs(keys) do s:write(string.format("tap %s hits %d\n", k, hits[k])) end
     s:write(string.format("taps installed %d\n", #_G._t16_taps))
+    if stack_low < 0x1000000 then s:write(string.format("stack low-water %06x\n", stack_low)) end
     s:close()
     m:exit()
   end
