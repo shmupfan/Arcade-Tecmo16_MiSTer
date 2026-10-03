@@ -409,6 +409,49 @@ tap(0x150020, 0x150021, "irq21_count", function() irq21_frame = irq21_frame + 1 
 tap(0x150030, 0x150031, "irq31_count", function() irq31_frame = irq31_frame + 1 end)
 
 ---------------------------------------------------------------------------
+-- M3: SNDLOG=1 writes sndlog.csv, every sound-side event with MAME's
+-- emulated time (machine.time inside a tap is the executing CPU's local
+-- time, so 68000 and Z80 events are placed exactly, not at slice ends):
+--   V  frame notifier            L  68000 write to the sound latch
+--   Y  Z80 write to the YM2151   O  Z80 write to the M6295
+--   R  Z80 read of 0xFC00 (M6295 status), 0xFC04/05 (YM2151) or 0xFC08
+--      (latch), with the value returned
+--   I / N  Z80 opcode fetch at 0x0038 / 0x0066 (IRQ / NMI entry; also any
+--      jump there, none in these sound programs)
+-- SNDTRACE=F0:F1:file traces the sound CPU with MAME's debugger between
+-- notifiers F0 and F1 (needs "-debug -debugger none").
+---------------------------------------------------------------------------
+local slog = nil
+if os.getenv("SNDLOG") == "1" then
+  slog = assert(io.open(outdir .. "/sndlog.csv", "w"))
+  slog:write("t,frame,kind,addr,data\n")
+  local function sl(kind, a, d)
+    slog:write(string.format("%.12f,%d,%s,%x,%x\n", m.time:as_double(), frame, kind, a, d))
+  end
+  local function stap(space, wr, lo, hi, name, fn)
+    local h
+    if wr then h = space:install_write_tap(lo, hi, name, fn)
+    else h = space:install_read_tap(lo, hi, name, fn) end
+    table.insert(_G._t16_taps, h)
+  end
+  stap(main, true, 0x150010, 0x150011, "s_latch", function(o, d, mk)
+    if (mk & 0xff) ~= 0 then sl("L", o, d & 0xff) end
+  end)
+  stap(sndsp, true, 0xfc04, 0xfc05, "s_ym", function(o, d) sl("Y", o, d) end)
+  stap(sndsp, true, 0xfc00, 0xfc00, "s_oki", function(o, d) sl("O", o, d) end)
+  stap(sndsp, false, 0xfc00, 0xfc00, "s_okir", function(o, d) sl("R", o, d) end)
+  stap(sndsp, false, 0xfc04, 0xfc05, "s_ymr", function(o, d) sl("R", o, d) end)
+  stap(sndsp, false, 0xfc08, 0xfc08, "s_latr", function(o, d) sl("R", o, d) end)
+  -- an opcode fetch has the Z80's PC at the address (a data read, e.g. the
+  -- sound ROM checksum at boot, does not); the data column records PC
+  local zpc = m.devices[":audiocpu"].state["PC"]
+  stap(sndsp, false, 0x0038, 0x0038, "s_int", function(o, d) if zpc.value == o then sl("I", o, zpc.value) end end)
+  stap(sndsp, false, 0x0066, 0x0066, "s_nmi", function(o, d) if zpc.value == o then sl("N", o, zpc.value) end end)
+end
+local str_f0, str_f1, str_file = (os.getenv("SNDTRACE") or ""):match("^(%d+):(%d+):(.+)$")
+str_f0, str_f1 = tonumber(str_f0), tonumber(str_f1)
+
+---------------------------------------------------------------------------
 -- inputs and DIP fields
 ---------------------------------------------------------------------------
 local events = {}
@@ -443,6 +486,9 @@ end
 local vpos_check = "not checked"
 _G._t16_frame = emu.add_machine_frame_notifier(function()
   frame = frame + 1
+  if slog then slog:write(string.format("%.12f,%d,V,0,0\n", m.time:as_double(), frame)) end
+  if str_f0 and frame == str_f0 then m.debugger:command("trace " .. str_file .. ",audiocpu,noloop") end
+  if str_f1 and frame == str_f1 then m.debugger:command("trace off,audiocpu") end
   if frame == 2 then
     local l, h = beam()
     vpos_check = string.format("beam at notifier: line %d hpos %d (expected %d, 0); visible %dx%d from line %d; total %dx%d; screen frame_number %d at notifier %d",
@@ -476,6 +522,7 @@ _G._t16_frame = emu.add_machine_frame_notifier(function()
     wlog:close(); sumlog:close(); ftrace:close(); ilog:close()
     if vlog then vlog:close() end
     if rlog then rlog:close() end
+    if slog then slog:close() end
     local s = assert(io.open(outdir .. "/summary.txt", "w"))
     s:write(string.format("set %s machine %s frames %d\n", setname, machine_name, frame))
     s:write(vpos_check .. "\n")

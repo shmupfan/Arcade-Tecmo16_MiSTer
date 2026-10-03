@@ -75,7 +75,14 @@ always @(posedge clk, posedge rst ) begin
     if( rst ) begin
         busy <= 4'd0;
     end else begin
-        case( ch )
+        // Tecmo 16 core patch (rtl/vendor/jt6295/PROVENANCE.md): the busy
+        // flags follow the channel state committed to the CSR shift register
+        // at cen4. Upstream updates them on every clock of the channel's
+        // slot, so a pending stop reads as idle before it is committed, and
+        // a start command's first byte (which clears the pending stop in
+        // jt6295_ctrl) arriving in the same slot cancels the stop: the old
+        // phrase plays on and the new start is ignored as busy.
+        if( cen4 ) case( ch )
             4'b0001: busy[0] <= busy_in;
             4'b0010: busy[1] <= busy_in;
             4'b0100: busy[2] <= busy_in;

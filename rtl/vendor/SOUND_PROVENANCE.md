@@ -19,3 +19,27 @@ Dooyong edits (simulation only, no effect on synthesis):
   own timers.
 - `jt6295/hdl/jt6295.v`: `verilator public_flat_rd` comments on the
   `busy`, `start` and `stop` wires so the harness can log channel state.
+
+## Tecmo 16 changes (M3, 2026-10-03)
+
+Functional patch, synthesised (`jt6295/hdl/jt6295_serial.v`): the per-channel
+`busy` flags are updated on `cen4`, together with the channel state in the
+CSR shift register, instead of on every clock of the channel's slot.
+Upstream (jotego/jt6295 master, identical to this copy before the patch)
+lets a pending stop show as idle for the rest of the slot (up to 33 us)
+before it is committed; a start command's first byte clears the pending stop
+in `jt6295_ctrl.v`, so a start written in that window cancels the stop: the
+old phrase plays on at its old attenuation and the new start is ignored as
+busy. Ganbare Ginkun fades sounds by stop, poll status until idle, restart
+at the next attenuation; with upstream jt6295 every step of the fade was
+lost (the M6295 part of the mix up to 4.2 dB above MAME in 2 s segments,
+same waveform). After the patch the M6295 output matches MAME's level in
+those segments to 0.03 dB. docs/m3_findings.md section 4.
+
+Simulation only (Verilator comments, no effect on synthesis):
+- `jt6295/hdl/jt6295.v`: `verilator public_flat_rd` on `att` and
+  `pipe_att` (M3 trace `+okitrace`).
+
+The Dooyong and Hyper Duel cores carry the unpatched file; whether they
+need the patch depends on whether their sound programs restart a channel
+in the slot after a stop (open question for Lee, m3_findings 8).

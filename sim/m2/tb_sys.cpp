@@ -42,6 +42,24 @@
 //   SDRAM controller's worst case at 96 MHz)
 //   +pause=F:N: hold i_pause high for N frames from vblank F
 //   +events=FILE: each line-pass overrun and the first 200 unmapped accesses
+// M3 (sound):
+//   +snd=FILE    every sound-side event, as the oracle's sndlog.csv (SNDLOG=1):
+//                "t frame kind addr data", t in seconds from the start of the
+//                simulation (96 MHz clock count / 96e6). Kinds: V vblank,
+//                L 68000 latch write, Y YM2151 write, O M6295 write, R read of
+//                0xFC00 / 0xFC04 / 0xFC05 / 0xFC08 (value at the end of the
+//                read cycle), I / N opcode fetch at 0x0038 / 0x0066, Q YM2151
+//                IRQ line (data = irq_n after the change)
+//   +ztrace=F0:F1:FILE  every sound CPU opcode fetch from vblank F0 to F1:
+//                "t pc"
+//   +wav=FILE    the stereo mix (o_left, o_right) as raw 16-bit little-endian
+//                pairs at 48 kHz (every 2,000 clocks at 96 MHz)
+//   +okitrace=FILE every change of the M6295's per-channel state (jt6295
+//                busy, start, stop, att of the control block, pipe_att in
+//                the channel pipeline): "t busy start stop att pipe_att"
+//   +wavsep=FILE the sources before the mix at the same instants: YM2151
+//                left, YM2151 right (jt51 xleft/xright), M6295 (jt6295
+//                sound, 14-bit), 16-bit little-endian triples (M3 level fit)
 
 #include "Vt16_sys.h"
 #include "Vt16_sys___024root.h"
@@ -70,6 +88,8 @@ static uint32_t prom_last = 0xFFFFFFFF;
 static int prom_cnt = 0;
 static uint32_t o_last = 0xFFFFFFFF;
 static int o_cnt = 0;
+static bool snd_rd_prev = false, snd_fetch_prev = false, snd_q_prev = true;
+static unsigned snd_rd_a = 0, snd_rd_d = 0;
 
 static uint8_t sd(size_t a) { return a < sdram.size() ? sdram[a] : 0; }
 static uint32_t rd32(uint32_t a) {
@@ -177,6 +197,21 @@ int main(int argc, char **argv) {
         if (!ps.empty()) sscanf(ps.c_str(), "%ld:%ld", &pause_f, &pause_n);
     }
     std::string iof = plus("io", ""), ftf = plus("ftrace", "");
+    std::string sndf = plus("snd", ""), wavf = plus("wav", ""), ztf = plus("ztrace", "");
+    FILE *fsnd = sndf.empty() ? nullptr : fopen(sndf.c_str(), "w");
+    FILE *fwav = wavf.empty() ? nullptr : fopen(wavf.c_str(), "wb");
+    std::string wsf = plus("wavsep", "");
+    FILE *fws = wsf.empty() ? nullptr : fopen(wsf.c_str(), "wb");
+    std::string otf = plus("okitrace", "");
+    FILE *fot = otf.empty() ? nullptr : fopen(otf.c_str(), "w");
+    unsigned ot_prev = 0xFFFFFFFF;
+    long zt0 = -1, zt1 = -1;
+    FILE *fzt = nullptr;
+    if (!ztf.empty()) {
+        char zn[512] = {0};
+        if (sscanf(ztf.c_str(), "%ld:%ld:%511s", &zt0, &zt1, zn) == 3) fzt = fopen(zn, "w");
+    }
+    if (fsnd) fprintf(fsnd, "t,frame,kind,addr,data\n");
     FILE *fio = iof.empty() ? nullptr : fopen(iof.c_str(), "w");
     FILE *fft = ftf.empty() ? nullptr : fopen(ftf.c_str(), "w");
     {
@@ -270,7 +305,10 @@ int main(int argc, char **argv) {
                 fprintf(fio, "%ld %d %d %06x %04x %04x\n", frame, line, hp, ba, d, mask);
             if ((ba & ~1u) == 0x150030) irq31++;
             if ((ba & ~1u) == 0x150020) irq21++;
-            if ((ba & ~1u) == 0x150010 && lds) latches++;
+            if ((ba & ~1u) == 0x150010 && lds) {
+                latches++;
+                if (fsnd) fprintf(fsnd, "%.12f,%ld,L,150010,%x\n", cycles / 96e6, frame, d & 0xFF);
+            }
             if (ba >= 0x160000 && ba < 0x160020) {
                 int s = vsel_of[(ba >> 1) & 15];
                 if (s >= 0) {
@@ -280,10 +318,53 @@ int main(int argc, char **argv) {
             }
             if ((ba & ~1u) == 0x150000) flip = d & 1;
         }
+        if (fsnd || fzt) {
+#define S(x) r->t16_sys__DOT__u_snd__DOT__##x
+            unsigned za = S(A);
+            bool rdc = !S(mreq_n) && !S(rd_n);
+            bool fetch = rdc && !S(m1_n);
+            double t = cycles / 96e6;
+            if (fsnd) {
+                if (S(wr)) {
+                    if (za == 0xFC04 || za == 0xFC05) fprintf(fsnd, "%.12f,%ld,Y,%x,%x\n", t, frame, za, S(dout));
+                    else if (za == 0xFC00) fprintf(fsnd, "%.12f,%ld,O,%x,%x\n", t, frame, za, S(dout));
+                }
+                if (!rdc && snd_rd_prev && (snd_rd_a == 0xFC00 || snd_rd_a == 0xFC04 || snd_rd_a == 0xFC05 || snd_rd_a == 0xFC08))
+                    fprintf(fsnd, "%.12f,%ld,R,%x,%x\n", t, frame, snd_rd_a, snd_rd_d);
+                if (fetch && !snd_fetch_prev && (za == 0x38 || za == 0x66))
+                    fprintf(fsnd, "%.12f,%ld,%c,%x,0\n", t, frame, za == 0x38 ? 'I' : 'N', za);
+                bool q = S(ym_irq_n);
+                if (q != snd_q_prev) { fprintf(fsnd, "%.12f,%ld,Q,0,%d\n", t, frame, q); snd_q_prev = q; }
+            }
+            if (fzt && fetch && !snd_fetch_prev && frame >= zt0 && frame < zt1)
+                fprintf(fzt, "%.12f %04x\n", t, za);
+            if (rdc) { snd_rd_a = za; snd_rd_d = S(din); }
+            snd_rd_prev = rdc;
+            snd_fetch_prev = fetch;
+#undef S
+        }
         bool ia = r->t16_sys__DOT__m_iack;
         if (ia && !iack_prev) iacks++;
         iack_prev = ia;
         tick();
+        if (fwav && cycles % 2000 == 0) {
+            int16_t lr[2] = {(int16_t)top->o_left, (int16_t)top->o_right};
+            fwrite(lr, 2, 2, fwav);
+        }
+        if (fot) {
+#define O(x) r->t16_sys__DOT__u_snd__DOT__u_oki__DOT__##x
+            unsigned v = (O(busy) & 15) | (O(start) & 15) << 4 | (O(stop) & 15) << 8 | (O(att) & 15) << 12;
+            if (v != ot_prev) {
+                fprintf(fot, "%.9f %x %x %x %x\n", cycles / 96e6, v & 15, (v >> 4) & 15, (v >> 8) & 15, (v >> 12) & 15);
+                ot_prev = v;
+            }
+#undef O
+        }
+        if (fws && cycles % 2000 == 0) {
+            int16_t o14 = (int16_t)(r->t16_sys__DOT__u_snd__DOT__oki_snd << 2) >> 2;
+            int16_t v[3] = {(int16_t)r->t16_sys__DOT__u_snd__DOT__ym_xl, (int16_t)r->t16_sys__DOT__u_snd__DOT__ym_xr, o14};
+            fwrite(v, 2, 3, fws);
+        }
         if (fev && top->o_dbg_overruns != prev_over) {
             fprintf(fev, "overrun vblank %ld line %d maxcyc %d\n", frame, (int)V(vcnt), top->o_dbg_maxcyc);
             prev_over = top->o_dbg_overruns;
@@ -311,6 +392,7 @@ int main(int argc, char **argv) {
         }
         if (top->o_vbl) {
             frame++;
+            if (fsnd) fprintf(fsnd, "%.12f,%ld,V,0,0\n", cycles / 96e6, frame);
             if (cap.count(frame)) {
                 std::string b = out + "/" + std::to_string(1000000 + frame).substr(1);
                 if (px.size() != 256 * 224 * 3)
@@ -358,6 +440,9 @@ int main(int argc, char **argv) {
             top->i_extra = ports[1];
             top->i_pause = pause_f >= 0 && frame >= pause_f && frame < pause_f + pause_n;
             if (frame % 100 == 0) {
+                if (fsnd) fflush(fsnd);
+                if (fwav) fflush(fwav);
+                if (fzt) fflush(fzt);
                 if (fio) fflush(fio);
                 if (fft) fflush(fft);
                 if (fev) fflush(fev);
@@ -377,6 +462,11 @@ int main(int argc, char **argv) {
            top->o_dbg_snd_unmapped);
     if (fio) fclose(fio);
     if (fft) fclose(fft);
+    if (fsnd) fclose(fsnd);
+    if (fwav) fclose(fwav);
+    if (fws) fclose(fws);
+    if (fot) fclose(fot);
+    if (fzt) fclose(fzt);
     if (fev) fclose(fev);
     top->final();
     top.reset();

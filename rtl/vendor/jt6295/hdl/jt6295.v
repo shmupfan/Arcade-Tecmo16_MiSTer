@@ -53,7 +53,7 @@ wire [17:0] start_addr, stop_addr ,
 wire [ 9:0] ctrl_addr;
 wire [ 7:0] ch_data, ctrl_data;
 wire [ 3:0] data0, data1, data2, data3, pipe_data;
-wire [ 3:0] att, pipe_att;
+wire [ 3:0] att /* verilator public_flat_rd */, pipe_att /* verilator public_flat_rd */;
 wire        ctrl_ok, ctrl_cs, zero;
 wire        pipe_en;
 wire signed [11:0] pipe_snd;

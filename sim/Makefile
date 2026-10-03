@@ -275,3 +275,5 @@ m2-hw: $(M2HBIN)
 	  echo "$(M2HBIN) +sdram=build/regions/$$s/sdram.bin +machine=$$mc +dsw2=$$d2 +frames=3001 +cap=$$o/cap.txt +out=$$o +io=$$o/io.txt +ftrace=$$o/ftrace.txt +events=$$o/events.txt > $$o/run.log 2>&1"; \
 	done | tr '\n' '\0' | xargs -0 -n 1 -P 3 sh -c
 	$(PY) m2/hw_raster.py build/m2_hw $(OUT)
+
+include m3.mk

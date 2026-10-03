@@ -13,4 +13,4 @@ when the Dooyong core vendored it:
 | `jt51/` | YM2151, Jose Tejada | GPL-3.0 | `SOUND_PROVENANCE.md` (simulation-only `JT51_TIMER_EXACT` option, off) |
 | `jt6295/` | OKI M6295, Jose Tejada | GPL-3.0 | `SOUND_PROVENANCE.md` (Quartus ramstyle attribute, Verilator public comments) |
 
-No file was changed in this repository.
+Changed in this repository: `jt6295/hdl/jt6295_serial.v` (busy flags follow the committed channel state, a functional fix) and Verilator comments in `jt6295/hdl/jt6295.v`, both in `SOUND_PROVENANCE.md`; `rtl/t16_snd.sv` holds YM2151 writes until jt51's `cen_p1` (m3_findings 2).

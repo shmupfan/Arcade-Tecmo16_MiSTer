@@ -107,8 +107,9 @@ module t16_snd #(
   logic [7:0]  din /* verilator public_flat_rd */;
   logic        m1_n /* verilator public_flat_rd */;
   logic        rd_n /* verilator public_flat_rd */;
-  logic        mreq_n, iorq_n, wr_n, rfsh_n, halt_n, busak_n;
-  logic        ym_irq_n;
+  logic        mreq_n /* verilator public_flat_rd */;
+  logic        iorq_n, wr_n, rfsh_n, halt_n, busak_n;
+  logic        ym_irq_n /* verilator public_flat_rd */;
   logic        pending /* verilator public_flat_rd */;
   logic [7:0]  latch /* verilator public_flat_rd */;
 
@@ -172,16 +173,37 @@ module t16_snd #(
 
   // ================================================================ chips
   logic [7:0] ym_dout, oki_dout;
-  logic signed [15:0] ym_xl, ym_xr;
+  logic signed [15:0] ym_xl /* verilator public_flat_rd */;
+  logic signed [15:0] ym_xr /* verilator public_flat_rd */;
   logic       ym_smp;
+  // A Z80 write reaches jt51 on the next cen_p1 clock. jt51 takes register
+  // writes on any clock but sets its busy flag only for a write that
+  // coincides with cen_p1 (jt51_mmr: busy updates under cen); a one-clock
+  // strobe at 96 MHz hit cen_p1 about once in 48 writes, so the status
+  // read after a data write showed "not busy" where the chip (and MAME's
+  // ymfm, 32 x prescale 2 = 64 master clocks) shows busy for 16 us, and
+  // the sound driver's busy-wait loops ran short (m3_findings 3). Holding
+  // the write until cen_p1 moves the register update by at most one P1
+  // period (0.5 us), below the chip's own internal sampling.
+  logic       ym_wpend;
+  logic       ym_wa0;
+  logic [7:0] ym_wd;
+  always_ff @(posedge clk) begin
+    if (!rst_n) ym_wpend <= 1'b0;
+    else if (wr && s_ym) begin
+      ym_wpend <= 1'b1;
+      ym_wa0   <= A[0];
+      ym_wd    <= dout;
+    end else if (ym_cen_p1) ym_wpend <= 1'b0;
+  end
   jt51 u_ym (
     .rst(!rst_n), .clk(clk), .cen(ym_cen), .cen_p1(ym_cen_p1),
-    .cs_n(!(wr && s_ym)), .wr_n(1'b0), .a0(A[0]), .din(dout),
+    .cs_n(!(ym_wpend && ym_cen_p1)), .wr_n(1'b0), .a0(ym_wa0), .din(ym_wd),
     .dout(ym_dout),
     .ct1(), .ct2(), .irq_n(ym_irq_n),
     .sample(ym_smp), .left(), .right(), .xleft(ym_xl), .xright(ym_xr));
 
-  logic signed [13:0] oki_snd;
+  logic signed [13:0] oki_snd /* verilator public_flat_rd */;
   jt6295 #(.INTERPOL(0)) u_oki (
     .rst(!rst_n), .clk(clk), .cen(oki_cen), .ss(1'b1),
     .wrn(!(wr && s_oki)), .din(dout), .dout(oki_dout),

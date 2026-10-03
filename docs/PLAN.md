@@ -155,19 +155,18 @@ captures; compare frames and RAM with MAME. Final Star Force's IRQ count
 per frame depends on the vblank length (R3): divergences from that are
 expected and must be explained.
 
-### M3. Sound
+### M3. Sound (DONE, see m3_findings.md)
 
-Starting point from M2 (m2_findings 5.1): the sound command stream from the
-68000 matches MAME's in order and value on every run, and the sound RAM
-tracks MAME's until a music command, after which the sequencer's channel
-counters sit exactly one tick apart from MAME's (Ginkun from frame 785,
-Final Star Force gameplay from about frame 920; Riot gameplay never diverges
-in 4,700 frames). jt51's timer model is not the cause (the
-`JT51_TIMER_EXACT` build diverges at the same frame).
-
-T80 + jt51 + jt6295 from the Dooyong sound path; YM2151 stereo, OKI
-routed to both sides (spec 2). Compare register and command streams with
-MAME and the level with MAME WAVs.
+Five 3,600-frame runs (Final Star Force attract and gameplay, Riot attract
+and gameplay, Ginkun attract) against MAME's sound event log and WAV: every
+latch, YM2151 and M6295 write and every IRQ / NMI entry identical in content
+on every frame, sound RAM never persistently different, level within 0.22 dB
+below 3.5 kHz. Two fixes: YM2151 writes held until jt51's `cen_p1` (the busy
+flag was almost never set; root cause of M2's one-tick sequencer offset), and
+jt6295's busy flags follow the committed channel state (a stop could be
+cancelled by the next start; Ginkun's fades were lost). Remaining timing
+differences are the YM2151 timer phase (R15) and the M6295 stop latency
+(R14).
 
 ### M4. MiSTer shell, SDRAM, Quartus
 
@@ -198,6 +197,8 @@ the shmupfan Distribution database.
 | R11 | Interrupt acknowledge timing on the board (fx68k's E-clock-synchronised autovector, kept, against MAME's): where IRQ5 lands in the code, hence the interrupted context saved on the stack and in Riot's task blocks | m2_findings 5 |
 | R12 | What a YM2151 read at A0 = 0 (0xFC04) returns; the core returns 0xFF as MAME's ymfm | m2_findings 9 |
 | R13 | What the unmapped I/O at 0x150060-0x150067 and 0x150080-0x1500fe and the video registers at 0x160020-0x16002e drive (all written by the games, ignored by MAME and the core) | m2_findings 7 |
+| R14 | M6295 latency from a stop command to the status reading idle (jt6295: up to one channel slot, 134 us; MAME: at once) | m3_findings 4 |
+| R15 | YM2151 timer phase against the CPUs after reset: jt51 steps timers per sample cycle (as Nuked-OPM), MAME counts from the write; a 12.5 us sound CPU phase on Final Star Force and Ginkun | m3_findings 3 |
 
 ## 7. Risks
 
