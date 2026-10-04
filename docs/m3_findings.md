@@ -302,3 +302,30 @@ Class: MAME wrong per datasheet, timing only. Results in the other cores:
 | Hyper Duel, Magical Error | the games never read the status; MAME's OKI streams replayed through the chip: level within 0.004 dB | none |
 
 Not built (a video change is being added first, then one build).
+
+## 12. YM2151 reset with a clock enable (2026-10-04)
+
+Cause: jt51 loads its reset values only by shifting with `cen` while `rst`
+is high (jt51_sh), and t16_snd held the YM enable at 0 while `rst_n` was
+low, so the YM2151 never reset. From power-on its state is all zeros
+anyway (FPGA and Verilator both start registers at 0), so the boot is not
+affected; after an OSD reset it kept the previous game's operator state
+until the program rewrote it. Found in Side Arms and DEC8 (same jt51 and
+jt03 cores), where it was audible.
+
+Fix (rtl/t16_snd.sv): a second enable runs only while `rst_n` is low, one
+pulse every 8 clocks for 4,608 pulses (64 whole jt51 slot cycles, so the
+slot counter's phase at the release is unchanged), then stops. The normal
+enables restart from 0 at the release, so every enable after reset is the
+same as before.
+
+Evidence, previous RTL against the fix, from power-on:
+
+| Run | Sound event log (68000 latch, Z80 YM2151 and M6295 writes, IRQ/NMI) | Audio |
+|---|---|---|
+| fstarfrc, 600 frames | identical (17,283 events) | output 0 before the first YM2151 write (frame 75) in both; every sample after it identical |
+| ginkun, DSW 00FF/00FF, 1,200 frames | identical (46,053 events) | output 0 before the first YM2151 write in both; every sample identical, including the music from 13.3 s (MAME's first sound is at 13.29 s) |
+
+Accurate side: the fix, as the chip resets on its IC pin on the board.
+Not checked here: a warm reset in the simulator (the testbench starts from
+zeros only).

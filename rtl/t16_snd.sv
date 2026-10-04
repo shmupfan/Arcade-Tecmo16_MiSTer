@@ -101,6 +101,35 @@ module t16_snd #(
   end
   wire ym_cen_p1 = ym_cen && ym_ph;
 
+  // Reset-time enable for jt51. jt51 loads its reset values only by shifting
+  // with cen while rst is high (jt51_sh); with the enable held at 0 in reset
+  // it never reset at all: from power-on its state was all zeros, and after
+  // a warm reset it kept the previous game's operator state
+  // (m3_findings 12). This enable runs only while rst_n is low, one pulse
+  // every 8 clocks for RST_CEN pulses; the normal enables above still
+  // restart from 0 at the release, so every enable after reset is unchanged.
+  localparam logic [12:0] RST_CEN = 13'd4608;   // 72 x 64: whole jt51 slot cycles (as in the Dooyong core)
+  logic [2:0]  rst_div;
+  logic [12:0] rst_cnt;
+  logic        rst_cen, rst_ph;
+  always_ff @(posedge clk) begin
+    rst_cen <= 1'b0;
+    if (rst_n) begin
+      rst_div <= '0;
+      rst_cnt <= '0;
+      rst_ph  <= 1'b0;
+    end else if (rst_cnt != RST_CEN) begin
+      rst_div <= rst_div + 3'd1;
+      if (rst_div == 3'd0) begin
+        rst_cen <= 1'b1;
+        rst_ph  <= !rst_ph;
+        rst_cnt <= rst_cnt + 13'd1;
+      end
+    end
+  end
+  wire fm_cen    = rst_n ? ym_cen    : rst_cen;
+  wire fm_cen_p1 = rst_n ? ym_cen_p1 : (rst_cen && rst_ph);
+
   // ================================================================ CPU
   logic [15:0] A /* verilator public_flat_rd */;
   logic [7:0]  dout /* verilator public_flat_rd */;
@@ -197,7 +226,7 @@ module t16_snd #(
     end else if (ym_cen_p1) ym_wpend <= 1'b0;
   end
   jt51 u_ym (
-    .rst(!rst_n), .clk(clk), .cen(ym_cen), .cen_p1(ym_cen_p1),
+    .rst(!rst_n), .clk(clk), .cen(fm_cen), .cen_p1(fm_cen_p1),
     .cs_n(!(ym_wpend && ym_cen_p1)), .wr_n(1'b0), .a0(ym_wa0), .din(ym_wd),
     .dout(ym_dout),
     .ct1(), .ct2(), .irq_n(ym_irq_n),
