@@ -12,7 +12,7 @@ Alternative versions live in `_alternatives/_Final Star Force/` and
 
 | File | md5 | Notes |
 |------|-----|-------|
-| `Arcade-Tecmo16_20261004.rbf` | `ea8e2e65a98e991cf8510ce646e156ff` | First release: Final Star Force (four sets), Riot (two sets), Ganbare Ginkun. |
+| `Arcade-Tecmo16_20261004.rbf` | `11ec0adf355dfe3297811e62d2c5d290` | Final Star Force (four sets), Riot (two sets), Ganbare Ginkun. Updated the same day (first build `ea8e2e65a98e991cf8510ce646e156ff`): the YM2151 now resets properly (its clock enable runs during reset), so an OSD reset no longer keeps the previous sound state; power-on audio unchanged. |
 
 Every released RBF passed, in order: frame replay against MAME for every
 set (video pixel-exact), full-system boots against MAME from power-on, a
