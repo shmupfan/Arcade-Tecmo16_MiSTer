@@ -2,6 +2,7 @@ roms/
 sim/build/
 sim/mame/out/
 *.rbf
+!releases/*.rbf
 __pycache__/
 sim/microrom.mem
 sim/nanorom.mem
