@@ -249,3 +249,34 @@ Fit: 13,819 / 41,910 ALM (33%), 235 / 553 RAM blocks (42%), 1,787,312 block
 memory bits (32%), 38 / 112 DSP. RBF: `builds/20261003_0622_Arcade-Tecmo16.rbf`,
 md5 `6e8d3aee2601ac0a21ddd2516758c5c3` (not hardware tested). Note: this RBF
 has the committed M2 sound RTL, not M3's fixes; rebuild after M3 lands.
+
+## 9. Video sync during the ROM download, HDMI options, Rotate option (2026-10-04)
+
+The board held the core in reset through the ROM download and SDRAM
+init, and that reset also stopped the pixel enable and raster counters,
+so there was no sync for the length of the download (the Dooyong core
+showed a green no-signal screen there). With FREE_TIMING (t16_sys /
+t16_video parameter, set to 1 by t16_board) the raster runs from the PLL
+lock with black RGB; once a frame the pixel enable that would start the
+power-on line (V_VBL) reloads the counters instead, and the core leaves
+reset on the clock after that reload, so the game starts exactly as from
+a plain reset release.
+
+Board A/B (base e4a3140 vs the fix, fstarfrc 601 frames): 945 / 945
+common capture files identical; 11 vsyncs and 0 lit pixels before the
+core runs (base: 1 vsync). The base also writes 000001.rgb, which the
+fix run skips: with sync running before the release, the harness's first
+"frame" spans part of the reset period and is not a full 256 x 224 frame,
+so the harness does not dump it (frame 1's RAM dumps and write log are
+identical). Earlier A/B on the pre-variant-e base: fstarfrc and ginkun
+945 / 945 each.
+
+Shell: OSD Rotate CW (MAME ROT90) / CCW for Final Star Force (frame
+buffer only; on a CRT use the Flip Screen DIP), Scale options, and a
+216-line crop with offset for unrotated 224-line output, through
+video_freak. The shell lints clean with the framework stubs.
+
+Build builds/20261004_Arcade-Tecmo16.rbf, md5
+ea8e2e65a98e991cf8510ce646e156ff: all clocks non-negative (core setup
++0.757 / hold +0.151 ns, HDMI setup +0.434 / hold +0.249 ns), 34% ALMs,
+42% RAM blocks. Not released; not tested on hardware.
