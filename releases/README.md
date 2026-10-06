@@ -12,7 +12,7 @@ Alternative versions live in `_alternatives/_Final Star Force/` and
 
 | File | md5 | Notes |
 |------|-----|-------|
-| `Arcade-Tecmo16_20261004.rbf` | `11ec0adf355dfe3297811e62d2c5d290` | Final Star Force (four sets), Riot (two sets), Ganbare Ginkun. Updated the same day (first build `ea8e2e65a98e991cf8510ce646e156ff`): the YM2151 now resets properly (its clock enable runs during reset), so an OSD reset no longer keeps the previous sound state; power-on audio unchanged. |
+| `Arcade-Tecmo16_20261006.rbf` | `6509126f54bfe21b4589c16487cd295f` | Final Star Force (four sets), Riot (two sets), Ganbare Ginkun. Stable pixels on direct video (6 MHz, 384 x 264 raster, a whole number of clocks per pixel); vertical sync on the horizontal sync edge, so composite sync no longer disturbs the top of a CRT picture; new OSD options CRT H Position, CRT V Position and Flip Screen (Final Star Force). Replaces `Arcade-Tecmo16_20261004.rbf` (`11ec0adf355dfe3297811e62d2c5d290`). |
 
 Every released RBF passed, in order: frame replay against MAME for every
 set (video pixel-exact), full-system boots against MAME from power-on, a
