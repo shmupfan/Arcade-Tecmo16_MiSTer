@@ -41,6 +41,7 @@
 //   +promlat=N: program ROM latency, request to ok (default 9, the M4
 //   SDRAM controller's worst case at 96 MHz)
 //   +pause=F:N: hold i_pause high for N frames from vblank F
+//   +osdflip=1, +crth=N, +crtv=N: OSD flip and CRT position (4-bit / 3-bit two's complement)
 //   +events=FILE: each line-pass overrun and the first 200 unmapped accesses
 // M3 (sound):
 //   +snd=FILE    every sound-side event, as the oracle's sndlog.csv (SNDLOG=1):
@@ -256,6 +257,10 @@ int main(int argc, char **argv) {
     top->i_dsw1 = strtol(plus("dsw1", "00FF").c_str(), nullptr, 16);
     top->i_dsw2 = strtol(plus("dsw2", machine == 1 ? "00FC" : "00FF").c_str(), nullptr, 16);
     top->i_pause = 0;
+    // OSD CRT position and flip (m4_findings 10), default off
+    top->i_osd_flip = atoi(plus("osdflip", "0").c_str()) & 1;
+    top->i_crt_h = atoi(plus("crth", "0").c_str()) & 15;
+    top->i_crt_v = atoi(plus("crtv", "0").c_str()) & 7;
     top->rst_n = 0;
     top->i_snd_dl_we = 0;
     for (int i = 0; i < 16; i++) tick();

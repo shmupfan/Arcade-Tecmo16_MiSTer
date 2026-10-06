@@ -15,13 +15,22 @@
 //  pixel enable is fractional, so each pixel is handed to the 48 MHz domain
 //  with a toggle: the core side latches the pixel and flips the toggle on its
 //  enable, the video side registers the toggle and makes a one-clock enable
-//  from its change. Pixels are at least 16 core clocks apart (MAME raster:
-//  5.82 MHz; the 6 MHz alternative: 16), so the latched pixel is long stable.
+//  from its change. Pixels are exactly 16 core clocks apart, so the video
+//  side gets one enable every 8 clocks of 48 MHz.
 //
-//  Raster (research item R3, decision pending): RASTER_MAME = 1 builds MAME's
-//  59.17 Hz frame of 256 lines (the M2 gate configuration, frame-exact
-//  against MAME's IRQ5 trace); 0 builds the 6 MHz 384 x 264 raster MAME's
-//  TODO guesses (59.19 Hz).
+//  Raster (m4_findings 10, Lee 2026-10-05): 6 MHz pixel clock (96 / 16),
+//  384 x 264, 59.19 Hz, 15.625 kHz (MAME's guess for the board, R3). Direct
+//  video (direct_video=1) sends CLK_VIDEO to the HDMI DAC and holds each
+//  pixel until the next CE_PIXEL, so the pixel clock must be a whole
+//  fraction of CLK_VIDEO. The first release used MAME's 59.17 Hz frame
+//  through a fractional pixel enable (8.25 clocks of 48 MHz per pixel):
+//  pixels of 8 and 9 clocks, wobbling on direct video.
+//
+//  CRT options (m4_findings 10): CRT H/V Position move the sync pulses (the
+//  picture area and the game's timing are unchanged); Flip Screen flips the
+//  picture in the renderer (XOR with the game's flip register), so it works
+//  on a CRT. Flip is for the vertical game only (Final Star Force): hidden
+//  and off for Riot and Ganbare Ginkun.
 //============================================================================
 
 module emu
@@ -29,10 +38,10 @@ module emu
 	`include "sys/emu_ports.vh"
 );
 
-localparam bit RASTER_MAME = 1'b1;
-localparam int PIX_NUM = RASTER_MAME ? 47336  : 1;
-localparam int PIX_DEN = RASTER_MAME ? 781250 : 16;
-localparam int V_TOTAL = RASTER_MAME ? 256    : 264;
+localparam int PIX_NUM = 1;
+localparam int PIX_DEN = 16;
+localparam int H_TOTAL = 384;
+localparam int V_TOTAL = 264;
 
 assign ADC_BUS  = 'Z;
 assign USER_OUT = '1;
@@ -73,6 +82,9 @@ localparam CONF_STR = {
 	"H0O2,Orientation,Vertical,Horizontal;",
 	"H1O7,Rotate,CW,CCW;",
 	"O35,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
+	"H1O[31],Flip Screen,Off,On;",
+	"O[27:24],CRT H Position,0,+2,+4,+6,+8,+10,+12,+14,-16,-14,-12,-10,-8,-6,-4,-2;",
+	"O[30:28],CRT V Position,0,+1,+2,+3,-4,-3,-2,-1;",
 	"H0O[13:12],Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	"d2O[14],Vertical Crop,Disabled,216p(5x);",
 	"d3O[18:15],Crop Offset,0,1,2,3,4,-4,-3,-2,-1;",
@@ -206,11 +218,12 @@ wire [7:0] r, g, b;
 wire       hbl, vbl, hs, vs, de, ce_pix;
 wire signed [15:0] aud_l, aud_r;
 
-t16_board #(.CLK_HZ(96000000), .PIX_NUM(PIX_NUM), .PIX_DEN(PIX_DEN), .V_TOTAL(V_TOTAL)) board (
+t16_board #(.CLK_HZ(96000000), .PIX_NUM(PIX_NUM), .PIX_DEN(PIX_DEN), .H_TOTAL(H_TOTAL), .V_TOTAL(V_TOTAL)) board (
 	.clk(clk_sys), .i_sdram_rst_n(pll_locked), .i_reset(reset),
 	.i_ioctl_download(ioctl_download), .i_ioctl_wr(ioctl_wr), .i_ioctl_addr(ioctl_addr),
 	.i_ioctl_dout(ioctl_dout), .i_ioctl_index(ioctl_index), .o_ioctl_wait(ioctl_wait),
 	.i_p1p2(p1p2), .i_extra(extra), .i_pause(pause),
+	.i_crt_h(status[27:24]), .i_crt_v(status[30:28]), .i_osd_flip(status[31] & vertical),
 	.o_r(r), .o_g(g), .o_b(b), .o_hblank(hbl), .o_vblank(vbl), .o_hs(hs), .o_vs(vs),
 	.o_de(de), .o_ce_pix(ce_pix), .o_left(aud_l), .o_right(aud_r), .o_machine(machine),
 	.o_vbl(), .o_vid_busy(), .o_cpu_pc_dbg(),

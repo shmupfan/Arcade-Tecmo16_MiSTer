@@ -67,8 +67,15 @@ adjustable offset. The output is stereo, as the board's YM2151.
 
 Rotate only turns the HDMI picture (the frame buffer). On a CRT the
 picture is not rotated: if your monitor is mounted for ROT270 games
-(1945k III and most other vertical games), set Final Star Force's Flip
-Screen DIP switch to On instead, as you would on the original cabinet.
+(1945k III and most other vertical games), set the OSD Flip Screen option
+(or the game's Flip Screen DIP switch) to On instead.
+
+CRT options: Flip Screen (Final Star Force only, the vertical game) turns
+the picture 180 degrees in the core, so it works on a CRT. CRT H Position (2 pixels a step, -16 to
++14) and CRT V Position (1 line a step, -4 to +3) move the picture on a
+CRT by moving the sync pulses; the picture area and the game's timing do
+not change. Vertical sync starts and ends on a horizontal sync pulse, so
+composite sync (SCART) has no stray pulse above the picture.
 
 ## Accuracy notes
 
@@ -86,9 +93,15 @@ the hardware, and the difference is logged as a research item in
   the screen is being drawn. The core reads them live as the beam meets
   them; MAME draws each frame at once. Every frame where that differs
   from MAME was classified (docs/m1_findings.md, R1).
-- **Raster.** MAME guesses a 6 MHz pixel clock and 384 x 264 lines
-  (59.17 Hz); the core uses the same. A board measurement would settle
-  it (R3).
+- **Raster.** MAME runs 256 lines at 59.17 Hz and guesses a 6 MHz pixel
+  clock with 384 x 264 lines for the board. The core uses MAME's guess:
+  6 MHz, 384 x 264 (59.19 Hz, 15.625 kHz), a whole number of system
+  clocks per pixel so the picture is stable on direct video
+  (direct_video=1). Over 3,000 frames Ganbare Ginkun matches MAME frame
+  for frame and Riot's picture matches MAME in every frame; the Final Star
+  Force attract demo plays out differently after about two seconds,
+  because its timing depends on the frame length. A board measurement
+  would settle it (R3).
 - **CPU timing.** fx68k runs the 68000's E-clock synchronised interrupt
   acknowledge, which MAME approximates, so where an interrupt lands in
   the code can differ by a few instructions (docs/m2_findings.md, R11).
@@ -110,7 +123,8 @@ the hardware, and the difference is logged as a research item in
 - Line renderer: three 16x16 tile layers, the text layer and the sprite
   list, combined by the Tecmo mixer (blending on Riot)
 - YM2151 (stereo) and M6295
-- 96 MHz system clock, 6 MHz pixel clock: 384 x 264 at 59.17 Hz
+- 96 MHz system clock, 6 MHz pixel clock (exactly 16 clocks, 8 of the
+  48 MHz video clock): 384 x 264 at 59.19 Hz, 15.625 kHz
 
 ## Layout
 

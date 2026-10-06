@@ -280,3 +280,50 @@ Build builds/20261004_Arcade-Tecmo16.rbf, md5
 ea8e2e65a98e991cf8510ce646e156ff: all clocks non-negative (core setup
 +0.757 / hold +0.151 ns, HDMI setup +0.434 / hold +0.249 ns), 34% ALMs,
 42% RAM blocks. Not released; not tested on hardware.
+
+## 10. Direct video pixel clock, CRT sync, CRT position, Flip Screen (2026-10-05)
+
+Two user reports on the first release (Arcade-Tecmo16_20261004): pixels
+wobble on direct video (direct_video=1), and on a CRT the top of the
+picture is slightly out of sync, the picture sits too far left and is
+narrow.
+
+**Pixel clock.** The release ran MAME's 59.17 Hz frame through a
+fractional pixel enable (47336/781250 of 96 MHz, 5.8166 MHz): 8.25 clocks
+of the 48 MHz video clock per pixel, so pixels were 8 or 9 clocks wide.
+Direct video holds each pixel on the DAC until the next CE_PIXEL, which
+shows as wobbling pixels. The raster is now MAME's guess for the board,
+6 MHz (96 / 16), 384 x 264, 59.19 Hz, 15.625 kHz (Lee 2026-10-05): exactly
+16 core clocks, 8 video clocks, a pixel. A 396 x 256 raster (MAME's 256
+lines and line length) was built first and dropped: its Final Star Force
+attract drifts from MAME at the same frame (114) as 384 x 264, because no
+6 MHz raster gives MAME's frame length (1,622,016 clocks against
+1,622,443), and it is 3% narrower on a CRT.
+
+**Vertical sync.** VS changed with the line counter at pixel 0, 80 pixels
+after the hsync. MiSTer's composite sync is HS XOR VS, so each VS edge put
+a stray sync edge between two hsyncs, which pulls a CRT's line oscillator
+just above the picture. VS now starts and ends on an hsync leading edge.
+
+**CRT position.** OSD CRT H Position (status[27:24], 2 px a step, -16 to
++14) and CRT V Position (status[30:28], 1 line a step, -4 to +3) move the
+sync pulses only, taken at vblank start; HS stays in pixels 290-351
+(hblank 256-383), VS in lines 245-255 (vblank 240-263, 0-15). The picture width on
+a CRT is set by the 256 active pixels in a 384-pixel line and cannot be
+changed by the core.
+
+**Flip Screen.** OSD status[31], XORed into the board's flip screen
+register in t16_video, which turns the picture 180 degrees (both axes,
+the same path the game's own flip uses, verified pixel exact against
+MAME's flip captures at M1). For Final Star Force only: hidden (menu mask
+~vertical) and forced off for Riot and Ganbare Ginkun, which are
+horizontal (Lee 2026-10-05).
+
+| Check | Result |
+|---|---|
+| sim/m4/sync/tb_sync.cpp, t16_video at 384 x 264, all 16 x 8 offsets | 128 / 128 pass: VS edges on HS rising edges, HS 32 px, VS 3 lines, periods, position against the first visible pixel |
+| 3,001-frame boots of each parent at 384 x 264 (build/m2_hw384) | IRQ trace and I/O stream identical to the 2026-10-03 384 x 264 run (the video changes are invisible to the CPU); Ganbare Ginkun PASS against MAME (3,000 frames, 375 exact, 1 midscan); Riot 892 exact, 8 midscan of 900 images, 0 persistent state differences, IRQ entries per frame first differ at frame 104 (same distribution as MAME); Final Star Force IRQ trace first differs at frame 114 (as m2_findings 7) |
+| Riot, OSD flip on, frames 590-600 | 11 / 11 images equal the normal run turned 180 degrees |
+| Shell lint (m4-lint-shell) | 0 errors |
+| Quartus | 20261005_2016 build (before the vertical-only flip mask): every clock meets timing, worst +0.247 ns |
+

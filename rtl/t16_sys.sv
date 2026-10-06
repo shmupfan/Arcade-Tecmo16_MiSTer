@@ -11,7 +11,10 @@
 //     (6 MHz, the 384 x 264 raster MAME's TODO guesses, t16:20, research item
 //     R3). MAME parity (the M2 gate): 47336 / 781250 with V_TOTAL = 256, which
 //     is exactly MAME's 59.17 Hz frame of 256 lines (t16:679-681) drawn as
-//     384 pixel periods per line (m2_findings 2)
+//     384 pixel periods per line (m2_findings 2). The MiSTer build
+//     (m4_findings 10) uses 1/16, 384 x 264: a whole number of clocks per
+//     pixel (direct video needs that; the MAME fraction gives pixels of 16
+//     and 17 clocks)
 //   - 68000 two-phase enables at 2 x 12 MHz (24 MHz / 2, t16:663)
 //   - sound board enables in t16_snd
 // i_pause stops the 68000 and the sound board; the video keeps scanning.
@@ -67,6 +70,7 @@ module t16_sys #(
     parameter int PIX_NUM  = 1,
     parameter int PIX_DEN  = 16,
     parameter int V_TOTAL  = 264,
+    parameter int H_TOTAL  = 384,
     parameter int IRQ_HOLD = 96000,       // clocks: 1000 us at 96 MHz
     parameter bit LATCH    = 1'b0,        // t16_video LATCH (Lee 2026-10-02: live)
     // 1 on the MiSTer board: the video raster runs from i_pwr_rst_n and keeps
@@ -79,6 +83,9 @@ module t16_sys #(
     output logic        o_run,          // core out of reset (effective)
     input  logic [1:0]  i_machine,       // 0 Final Star Force, 1 Riot, 2 Ginkun
     input  logic        i_pause,
+    input  logic [3:0]  i_crt_h,        // OSD CRT position and flip (t16_video)
+    input  logic [2:0]  i_crt_v,
+    input  logic        i_osd_flip,
 
     // program ROM (512 KB, 16-bit words, high byte = even address)
     output logic        o_prom_req,
@@ -372,8 +379,8 @@ module t16_sys #(
   logic [15:0] pal_q, char_q, fgv_q, fgc_q, bgv_q, bgc_q, spr_q;
   wire  [11:0] vaddr = s_pal ? m_a[12:1] : (base && s_tile) ? {2'b00, m_a[10:1]} : {1'b0, m_a[11:1]};
   wire         flip_w = m_wstb && s_flip;
-  t16_video #(.LATCH(LATCH), .V_TOTAL(V_TOTAL), .FREE_TIMING(FREE_TIMING)) u_video (
-    .clk, .rst_n(crst_n), .ce_pix, .i_machine,
+  t16_video #(.LATCH(LATCH), .V_TOTAL(V_TOTAL), .H_TOTAL(H_TOTAL), .FREE_TIMING(FREE_TIMING)) u_video (
+    .clk, .rst_n(crst_n), .ce_pix, .i_machine, .i_crt_h, .i_crt_v, .i_osd_flip,
     .i_tim_rst(tim_rst), .o_tim_evt(tim_evt),
     .i_cpu_addr(vaddr), .i_cpu_din(wdata), .i_cpu_be(flip_w ? 2'b11 : m_be),
     .i_pal_we(m_wstb && s_pal), .i_char_we(m_wstb && s_char),

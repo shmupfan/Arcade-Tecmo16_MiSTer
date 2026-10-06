@@ -12,8 +12,8 @@ Checks:
    frames.csv. The first frame that differs is reported.
 2. I/O stream: every write to the flip, sound latch, IRQ and video register
    ports (the classes MAME logs in writes.csv), in order, value and lane
-   mask; beam position deltas in pixels (MAME hpos x 1.5: its 256-pixel
-   screen line equals our 384-pixel line in the parity raster).
+   mask; beam position deltas in pixels (MAME hpos x H/256: its 256-pixel
+   screen line equals our H-pixel line, H = T16_HTOTAL, default 384).
 3. State at vblank N (MAME frame N's notifier): palette, text, fg/bg tile
    RAMs, live sprite RAM, the sprite buffer, scroll registers, text-y flag,
    flip (M0 capture), main RAM, work RAM and sound RAM (M2 run). A
@@ -41,6 +41,7 @@ Usage: compare.py <ours> <m0_run> <m2ram_run> [--quiet] [--diff DIR] [--until N]
 """
 import csv
 import json
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -51,6 +52,9 @@ from PIL import Image
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "oracle"))
 from t16_render import render  # noqa: E402
+
+# our line length in pixels (check 2), 384 unless T16_HTOTAL says otherwise
+HTOT = int(os.environ.get("T16_HTOTAL", "384"))
 
 MACHINES = {"base": 0, "riot": 1, "ginkun": 2}
 # Riot runs a small preemptive task kernel: its IRQ5 path saves the
@@ -169,8 +173,8 @@ def check_io(ours, mame, last):
         if (a[3] & ~1, a[5], a[4] & dmask) != (b[3] & ~1, b[5], b[4] & dmask):
             first = (i, a, b)
             break
-        pa = (a[0] * 256 + (a[1] - 240) % 256) * 384 + a[2]
-        pb = (b[0] * 256 + (b[1] - 240) % 256) * 384 + b[2] * 1.5
+        pa = (a[0] * 256 + (a[1] - 240) % 256) * HTOT + a[2]
+        pb = (b[0] * 256 + (b[1] - 240) % 256) * HTOT + b[2] * HTOT / 256
         deltas.append(pa - pb)
     if first is None and len(ours) != len(mame):
         n = min(len(ours), len(mame))

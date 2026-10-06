@@ -22,13 +22,16 @@
 
 module t16_board #(
     parameter int  CLK_HZ     = 96000000,
-    // pixel enable fraction and lines per frame: MAME's raster by default
-    // (59.17 Hz, 256 lines drawn as 384 pixel periods per line, the M2 gate
-    // configuration); 1/16 and 264 give the 6 MHz 384 x 264 alternative
-    // (research item R3, decision pending)
-    parameter int  PIX_NUM    = 47336,
-    parameter int  PIX_DEN    = 781250,
-    parameter int  V_TOTAL    = 256,
+    // pixel enable fraction, pixels per line and lines per frame. Default:
+    // the MiSTer raster, 6 MHz (1/16), 384 x 264, 59.19 Hz, 15.625 kHz
+    // (MAME's guess for the board, t16:20, research item R3): a whole number
+    // of clocks per pixel for direct video (m4_findings 10, Lee 2026-10-05).
+    // 47336/781250, 384, 256 is the M2 gate's MAME parity raster (59.17 Hz,
+    // fractional pixel enable)
+    parameter int  PIX_NUM    = 1,
+    parameter int  PIX_DEN    = 16,
+    parameter int  H_TOTAL    = 384,
+    parameter int  V_TOTAL    = 264,
     parameter int  IRQ_HOLD   = 96000,
     parameter bit  SHORT_INIT = 1'b0
 ) (
@@ -49,6 +52,9 @@ module t16_board #(
     input  logic [15:0] i_p1p2,
     input  logic [15:0] i_extra,
     input  logic        i_pause,        // OSD / key pause (t16_sys holds CPU and sound enables)
+    input  logic [3:0]  i_crt_h,        // OSD CRT position (2 px steps) and flip
+    input  logic [2:0]  i_crt_v,
+    input  logic        i_osd_flip,
 
     output logic [7:0]  o_r,
     output logic [7:0]  o_g,
@@ -151,13 +157,14 @@ module t16_board #(
   always_ff @(posedge clk) core_rst_n <= !i_reset && !i_ioctl_download && sd_ready;
 
   t16_sys #(.CLK_HZ(CLK_HZ), .PIX_NUM(PIX_NUM), .PIX_DEN(PIX_DEN), .V_TOTAL(V_TOTAL),
-            .IRQ_HOLD(IRQ_HOLD), .FREE_TIMING(1'b1)) u_sys (
+            .H_TOTAL(H_TOTAL), .IRQ_HOLD(IRQ_HOLD), .FREE_TIMING(1'b1)) u_sys (
     // FREE_TIMING: sync keeps running (black picture) during the ROM
     // download and SDRAM init instead of stopping, so the MiSTer scaler
     // never loses the signal (Dooyong showed a green "no input" screen);
     // t16_sys releases the core on the raster's power-on phase (core_run).
     .clk(clk), .rst_n(core_rst_n), .i_pwr_rst_n(i_sdram_rst_n), .o_run(core_run),
     .i_machine(machine), .i_pause(i_pause),
+    .i_crt_h(i_crt_h), .i_crt_v(i_crt_v), .i_osd_flip(i_osd_flip),
     .o_prom_req(prom_req), .o_prom_addr(prom_addr), .i_prom_data(prom_data), .i_prom_ok(prom_ok),
     .o_rom_req(rom_req), .o_rom_addr(rom_addr),
     .i_rom_gnt(rom_gnt), .i_rom_rv(rom_rv), .i_rom_data(rom_data),

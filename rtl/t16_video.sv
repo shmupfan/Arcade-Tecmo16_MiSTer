@@ -5,9 +5,10 @@
 // line numbers = reference/mame/tecmo16.cpp, tecmo_spr.cpp, tecmo_mix.cpp.
 //
 // Contents:
-//   - raster: 384 pixels per line at a 6 MHz pixel enable (96 MHz / 16),
-//     V_TOTAL lines (default 264, the 6 MHz / 384 x 264 guess of t16:20,
-//     research item R3), visible 256 x 224 at lines 16-239 as in MAME
+//   - raster: H_TOTAL pixels per line at a 6 MHz pixel enable (96 MHz / 16),
+//     V_TOTAL lines (default 384 x 264, the 6 MHz guess of t16:20, research
+//     item R3, also the MiSTer build, m4_findings 10), visible
+//     256 x 224 at lines 16-239 as in MAME
 //     (t16:681-682); vblank starts at line 240
 //   - CPU-side RAMs (t16_snapram): palette 4,096 words, text RAM, fg and bg
 //     codes and colours (2,048 words each; Final Star Force uses the low
@@ -39,6 +40,7 @@ module t16_video #(
     parameter bit LATCH      = 1'b0,
     parameter int LATCH_LINE = 14,
     parameter int V_TOTAL    = 264,
+    parameter int H_TOTAL    = 384,
     // 1 (MiSTer board): the raster counters and sync run from power-on and
     // keep going while the core is held in reset (ROM download, SDRAM
     // init), with black RGB; i_tim_rst reloads their power-on state once a
@@ -53,6 +55,11 @@ module t16_video #(
     input  logic        i_tim_rst,       // FREE_TIMING: synchronous raster reload
     output logic        o_tim_evt,       // FREE_TIMING: the next pixel starts the power-on line
     input  logic [1:0]  i_machine,       // 0 Final Star Force, 1 Riot, 2 Ginkun
+    // OSD (m4_findings 10): CRT position, two's complement, taken at vblank
+    // start; flip XORed into the board's flip screen register
+    input  logic [3:0]  i_crt_h,         // picture right by 2 px a step (-16..+14)
+    input  logic [2:0]  i_crt_v,         // picture down by 1 line a step (-4..+3)
+    input  logic        i_osd_flip,
 
     // CPU side, decoded by the system (M2): word address within each RAM,
     // 68000 byte enables {UDS, LDS}
@@ -109,10 +116,12 @@ module t16_video #(
   localparam logic [21:0] BG_BASE  = 22'h080000;   // PLAN 4.3
   localparam logic [21:0] SPR_BASE = 22'h180000;
   localparam logic [21:0] TX_BASE  = 22'h280000;
-  localparam int H_ACT = 256, H_TOTAL = 384;
+  localparam int H_ACT = 256;
   localparam int V_VIS0 = 16, V_VIS1 = 239, V_VBL = 240;
   // sync positions are not in the driver (spec 5, research item R3)
-  localparam int HS_START = 304, HS_END = 336;
+  // (sync 32 pixels, back porch 48 pixels at any H_TOTAL; 304-335 at 384).
+  // The OSD CRT position moves the sync pulses only (m4_findings 10).
+  localparam int HS_START = H_TOTAL - 80, HS_LEN = 32;
   localparam int VS_START = 248;
 
   wire base  = i_machine == 2'd0;
@@ -142,6 +151,25 @@ module t16_video #(
   wire latch_now  = last_px && vcnt == 9'(LATCH_LINE - 1);
   wire line_start = ce_pix && hcnt == 9'd0;
   always_ff @(posedge clk) o_vbl <= rst_n && vbl_start;
+
+  // CRT position: a later sync moves the picture left, so the sync moves
+  // against the offset. Taken at vblank start (whole frames only).
+  logic [8:0] hs_beg, vs_beg;
+  always_ff @(posedge clk) begin
+    if (tim_rst) begin
+      hs_beg <= 9'(HS_START);
+      vs_beg <= 9'(VS_START);
+    end else if (last_px && vcnt == 9'(V_VBL - 1)) begin
+      hs_beg <= 9'(HS_START) - {{4{i_crt_h[3]}}, i_crt_h, 1'b0};
+      vs_beg <= 9'(VS_START) - {{6{i_crt_v[2]}}, i_crt_v};
+    end
+  end
+  // vsync starts and ends on an hsync leading edge: MiSTer's composite sync
+  // is HS XOR VS, so a VS edge between hsyncs is a false sync pulse that
+  // pulls the CRT's line timing just above the picture (m4_findings 10)
+  wire vs_on = (vcnt == vs_beg && hcnt >= hs_beg) ||
+               (vcnt > vs_beg && vcnt < vs_beg + 9'd3) ||
+               (vcnt == vs_beg + 9'd3 && hcnt < hs_beg);
 
   // ================================================================ registers
   // MAME (t16:283-307): bg/fg/text x and y are the written 16-bit values;
@@ -177,7 +205,7 @@ module t16_video #(
           v_txx <= reg_v[0]; v_txy <= txy_eff_live;
           v_fgx <= reg_v[2]; v_fgy <= reg_v[3];
           v_bgx <= reg_v[4]; v_bgy <= reg_v[5];
-          v_flip <= flip_r;
+          v_flip <= flip_r ^ i_osd_flip;
         end
       end
     end else begin : g_live_regs
@@ -185,7 +213,7 @@ module t16_video #(
         v_txx = reg_v[0]; v_txy = txy_eff_live;
         v_fgx = reg_v[2]; v_fgy = reg_v[3];
         v_bgx = reg_v[4]; v_bgy = reg_v[5];
-        v_flip = flip_r;
+        v_flip = flip_r ^ i_osd_flip;
       end
     end
   endgenerate
@@ -700,8 +728,8 @@ module t16_video #(
       o_de     <= hcnt < 9'(H_ACT) && vcnt >= 9'(V_VIS0) && vcnt <= 9'(V_VIS1);
       o_hblank <= hcnt >= 9'(H_ACT);
       o_vblank <= vcnt < 9'(V_VIS0) || vcnt > 9'(V_VIS1);
-      o_hs     <= hcnt >= 9'(HS_START) && hcnt < 9'(HS_END);
-      o_vs     <= vcnt >= 9'(VS_START) && vcnt < 9'(VS_START + 3);
+      o_hs     <= hcnt >= hs_beg && hcnt < hs_beg + 9'(HS_LEN);
+      o_vs     <= vs_on;
       // xBGR_444 (t16:688): R bits 0-3, G 4-7, B 8-11, 4 to 8 bits as (c << 4) | c
       // black while the core is held in reset (FREE_TIMING keeps sync running)
       o_r <= (rst_n || !FREE_TIMING) ? {col_f[3:0], col_f[3:0]}   : 8'd0;
